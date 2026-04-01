@@ -3,7 +3,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Check, ChevronsUpDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { motion } from 'framer-motion';
 import { Settings as SettingsIcon, Key, Save, Lock, Loader2, CheckCircle2 } from 'lucide-react';
@@ -23,6 +26,7 @@ export default function SettingsPage() {
   const [accessToken, setAccessToken] = useState('');
   const [accountId, setAccountId] = useState('');
   const [availableAccounts, setAvailableAccounts] = useState<MetaAccount[]>([]);
+  const [openCombobox, setOpenCombobox] = useState(false);
 
   useEffect(() => {
     // Load local keys
@@ -108,20 +112,25 @@ export default function SettingsPage() {
         updated_at: new Date().toISOString()
       };
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('user_settings')
-        .upsert(payload, { onConflict: 'user_id' });
+        .upsert(payload, { onConflict: 'user_id' })
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Erro detalhado do Supabase (Upsert):', error);
+        throw error;
+      }
 
       toast({
         title: 'Sucesso',
         description: 'Todas as configurações foram salvas com sucesso!',
       });
     } catch (err: any) {
+      console.error('Ops, falha no banco:', err);
       toast({
-        title: 'Erro',
-        description: 'Não foi possível salvar as configurações da Meta no banco.',
+        title: 'Erro ao salvar no banco',
+        description: err.message || 'Verifique se rodou as relativas migrations ou reset no BD local.',
         variant: 'destructive',
       });
     } finally {
@@ -134,7 +143,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-6 lg:p-8">
+    <div className="mx-auto max-w-2xl p-6 lg:p-8 pb-20">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
@@ -160,7 +169,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Meta Ads Integration */}
-          <div className="rounded-xl border border-border bg-card p-5">
+          <div className="rounded-xl border border-border bg-card p-5 overflow-visible">
             <div className="mb-4 flex items-center gap-2">
               <Lock className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold text-foreground">Integração Meta Ads</h2>
@@ -185,21 +194,55 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 flex flex-col">
                 <Label>Conta de Anúncios Base (Account ID)</Label>
-                <Select value={accountId} onValueChange={setAccountId} disabled={availableAccounts.length === 0}>
-                  <SelectTrigger className="bg-secondary text-sm">
-                    <SelectValue placeholder={availableAccounts.length === 0 ? "Carregue o token primeiro" : "Selecione a conta"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableAccounts.map(acc => (
-                      <SelectItem key={acc.account_id} value={acc.account_id}>
-                        {acc.name} ({acc.account_id})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                 <p className="text-xs text-muted-foreground mt-1">Conta para a qual os primeiros insights serão carregados.</p>
+                <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={openCombobox}
+                      className="w-full justify-between bg-secondary text-sm h-10 px-3 py-2"
+                      disabled={availableAccounts.length === 0}
+                    >
+                      {accountId
+                        ? availableAccounts.find((account) => account.account_id === accountId)?.name + ` (${accountId})`
+                        : availableAccounts.length === 0
+                        ? "Carregue o token primeiro para pesquisar"
+                        : "Pesquise e selecione a conta..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Pesquisar pelo nome da conta ou ID..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhuma conta encontrada na busca.</CommandEmpty>
+                        <CommandGroup>
+                          {availableAccounts.map((account) => (
+                            <CommandItem
+                              key={account.account_id}
+                              value={`${account.name} ${account.account_id}`}
+                              onSelect={() => {
+                                setAccountId(account.account_id)
+                                setOpenCombobox(false)
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  accountId === account.account_id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {account.name} <span className="text-muted-foreground text-xs ml-2">({account.account_id})</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <p className="text-xs text-muted-foreground mt-1">Conta para a qual os primeiros insights serão carregados no Dashboard.</p>
               </div>
             </div>
           </div>

@@ -582,7 +582,10 @@ export default function DashboardPage() {
              {selectedAdModal && (() => {
                const ad = selectedAdModal;
                const c = ad.creativeDetails || {};
-               const thumb = c.thumbnail_url || c.image_url;
+               
+               // Prioritize full high-res image, fallback to video thumbnail, then small thumbnail
+               const thumb = c.image_url || c.object_story_spec?.video_data?.image_url || c.thumbnail_url;
+               
                const rankColor = ad.rank === 'best' ? 'text-success bg-success/10 border-success/30' : 'text-destructive bg-destructive/10 border-destructive/30';
                const rankIcon = ad.rank === 'best' ? <Trophy className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />;
 

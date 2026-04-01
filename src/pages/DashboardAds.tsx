@@ -5,6 +5,9 @@ import { useMetaContext } from '@/hooks/useMetaContext';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
 import { differenceInDays, subDays } from 'date-fns';
 
+// Componentes da Aplicação
+import { AudienceCharts } from '@/components/charts/AudienceCharts';
+
 // UI Components
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,11 +21,11 @@ import {
   TrendingUp, TrendingDown, Settings as SettingsIcon, AlertCircle, 
   Lightbulb, ArrowRight, Target, MousePointer, Eye,
   RefreshCw, BarChart, Trophy, Flame, AlertTriangle, ShieldCheck,
-  Filter as FilterIcon, Sparkles as SparklesIcon, ImageIcon, Pencil, X, PanelTopInactive
+  Filter as FilterIcon, Sparkles as SparklesIcon, ImageIcon, Pencil, X, PanelTopInactive, Users
 } from 'lucide-react';
 
 import { Link } from 'react-router-dom';
-import { insights_custom, listar_campanhas, obter_criativo_do_anuncio } from '@/services/metaApi';
+import { insights_custom, listar_campanhas, listar_conjuntos, obter_criativo_do_anuncio } from '@/services/metaApi';
 
 // ==========================================
 // CONFIGURAÇÕES PADRÃO (FALLBACK)
@@ -35,9 +38,10 @@ const DEFAULT_STRINGS = {
   titleKpis: "Radar de Performance",
   titleFunnel: "Trajetória do Usuário (Funil)",
   titleCreatives: "Batalha de Criativos",
+  titleAdSets: "Saúde dos Conjuntos (Ad Sets)",
   titleInsights: "Auto-Insights Express",
-  txtBestAds: "Promessas Escalonáveis (Melhores)",
-  txtWorstAds: "Sangria no Orçamento (Piores)",
+  txtBestAds: "Promessas Escalonáveis",
+  txtWorstAds: "Sangria no Orçamento",
   txtEmptyData: "Não há tráfego rodando neste período exato para popular todo o funil.",
   
   isCritCtrLow: "O criativo não está parando o dedo da audiência.",
@@ -54,19 +58,15 @@ const DEFAULT_STRINGS = {
 
 const BENCHMARKS = { ctr: 1.5, cpc: 2.0, conversao: 5 };
 
-// ==========================================
-// HELPERS
-// ==========================================
 function calcVariation(current: number, prev: number) {
   if (prev === 0) return current > 0 ? 100 : 0;
   return ((current - prev) / prev) * 100;
 }
 
 // ==========================================
-// COMPONENTES UX MINIS
+// COMPONENTES UX MINIS (Textos Customizados)
 // ==========================================
 
-// TEXTO EDITÁVEL AO CLICAR
 function EditableText({ value, onChange, className, iconClassName = "w-3 h-3" }: any) {
   const [isEditing, setIsEditing] = useState(false);
   const [temp, setTemp] = useState(value);
@@ -115,7 +115,7 @@ function KpiCard({ title, value, varPct, invertGood = false }: any) {
   );
 }
 
-function InsightItem({ type, title, message, action, texts, updateText, defaultTexts }: any) {
+function InsightItem({ type, title, message, action, texts, updateText }: any) {
   const colors = {
     critical: 'border-l-destructive bg-destructive/5 text-destructive-foreground',
     attention: 'border-l-warning bg-warning/5 text-warning',
@@ -132,8 +132,6 @@ function InsightItem({ type, title, message, action, texts, updateText, defaultT
       {icons[type as keyof typeof icons]}
       <div className="flex-1 min-w-0">
         <h4 className="text-[13px] font-black opacity-90 truncate">{title}</h4>
-        
-        {/* Passa as chaves dos textos dinâmicos para edição via UI se mapeado (No momento mapeado apenas texto base no switch do autoInsights) */}
         <p className="text-xs opacity-80 mt-1 mb-2 leading-relaxed">
            <EditableText value={message} onChange={(v:any) => updateText(message === texts.isCritCtrLow ? 'isCritCtrLow' : 
                                                                     message === texts.isOppCtrHigh ? 'isOppCtrHigh' :
@@ -153,30 +151,32 @@ function InsightItem({ type, title, message, action, texts, updateText, defaultT
   );
 }
 
-// ==========================================
-// PÁGINA PRINCIPAL
-// ==========================================
 export default function DashboardPage() {
   const { dateRange, prevDateRange } = useFilters();
   const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading } = useMetaContext();
 
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
+  const [selectedAdSetId, setSelectedAdSetId] = useState<string>('all');
   const [selectedAdModal, setSelectedAdModal] = useState<any>(null);
 
-  // ESTADO DE PERSONALIZAÇÃO (TEXTOS E PAINÉIS OCULTOS)
+  // ESTADO DE PERSONALIZAÇÃO
   const [texts, setTexts] = useState<typeof DEFAULT_STRINGS>(DEFAULT_STRINGS);
   const [hidden, setHidden] = useState<string[]>([]);
 
   useEffect(() => {
      const savedTexts = localStorage.getItem('aib_custom_texts');
      if (savedTexts) setTexts({...DEFAULT_STRINGS, ...JSON.parse(savedTexts)});
-     
      const savedHidden = localStorage.getItem('aib_hidden_panels');
      if (savedHidden) setHidden(JSON.parse(savedHidden));
   }, []);
 
+  useEffect(() => {
+     // Reseta Conjuntos se a Campanha mudar
+     setSelectedAdSetId('all');
+  }, [selectedCampaignId]);
+
   const updateText = (key: keyof typeof DEFAULT_STRINGS, val: string) => {
-    if(!key) return; // ignorado caso não mapeado
+    if(!key) return; 
     const novo = { ...texts, [key]: val || DEFAULT_STRINGS[key] };
     setTexts(novo);
     localStorage.setItem('aib_custom_texts', JSON.stringify(novo));
@@ -192,44 +192,52 @@ export default function DashboardPage() {
   const currFromStr = dateRange.from.toISOString().split('T')[0];
   const currToStr = dateRange.to.toISOString().split('T')[0];
   const currTimeRangeJSON = JSON.stringify({ since: currFromStr, until: currToStr });
+  const prevTimeRangeJSON = JSON.stringify({ since: prevDateRange.from.toISOString().split('T')[0], until: prevDateRange.to.toISOString().split('T')[0] });
 
-  const prevTimeRangeJSON = JSON.stringify({ 
-      since: prevDateRange.from.toISOString().split('T')[0], 
-      until: prevDateRange.to.toISOString().split('T')[0] 
-  });
-
+  // 1. SELECTORS DROPDOWN LISTS
   const { data: campaignList } = useQuery({ queryKey: ['meta-campaigns-list', accountId], enabled: hasMetaSetup, queryFn: async () => ((await listar_campanhas(token, accountId, 100)) as any).data || [] });
+  const { data: adSetList } = useQuery({ 
+     queryKey: ['meta-adsets-list', accountId, selectedCampaignId], 
+     enabled: hasMetaSetup && selectedCampaignId !== 'all', 
+     queryFn: async () => ((await listar_conjuntos(token, accountId, selectedCampaignId, 100)) as any).data || [] 
+  });
   
-  const queryParams = selectedCampaignId === 'all' ? { level: 'account', fields: 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas', time_range: currTimeRangeJSON } : { level: 'campaign', campaign_id: selectedCampaignId, fields: 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas', time_range: currTimeRangeJSON };
+  // 2. MAIN KPIS
+  const queryParams: any = selectedAdSetId !== 'all' ? { level: 'adset', adset_id: selectedAdSetId } 
+       : selectedCampaignId !== 'all' ? { level: 'campaign', campaign_id: selectedCampaignId }
+       : { level: 'account' };
+  queryParams.fields = 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas';
   
   const { data: currMetrics, isLoading: isMetricsLoading, refetch } = useQuery({
-    queryKey: ['meta-dash-curr', accountId, selectedCampaignId, currFromStr, currToStr],
+    queryKey: ['meta-dash-curr', accountId, selectedCampaignId, selectedAdSetId, currFromStr, currToStr],
     enabled: hasMetaSetup,
     queryFn: async () => {
-      const res = await insights_custom(token, accountId, queryParams as any);
+      const res = await insights_custom(token, accountId, {...queryParams, time_range: currTimeRangeJSON});
       const data = (res as any).data || res;
       return data && data.length > 0 ? parseMetricsObject(data[0]) : null;
     }
   });
 
-  const prevQueryParams = { ...queryParams, time_range: prevTimeRangeJSON };
   const { data: prevMetrics } = useQuery({
-    queryKey: ['meta-dash-prev', accountId, selectedCampaignId, prevDateRange.from.toISOString(), prevDateRange.to.toISOString()],
+    queryKey: ['meta-dash-prev', accountId, selectedCampaignId, selectedAdSetId, prevDateRange.from.toISOString(), prevDateRange.to.toISOString()],
     enabled: hasMetaSetup,
     queryFn: async () => {
-      const res = await insights_custom(token, accountId, prevQueryParams as any);
+      const res = await insights_custom(token, accountId, {...queryParams, time_range: prevTimeRangeJSON});
       const data = (res as any).data || res;
       return data && data.length > 0 ? parseMetricsObject(data[0]) : null;
     }
   });
 
-  const rankingParams = selectedCampaignId === 'all' ? { level: 'ad', fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 } : { level: 'ad', campaign_id: selectedCampaignId, fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 100 };
-  
+  // 3. RANKINGS (AD SETS & CREATIVES)
+  const rankingParamsBase = selectedAdSetId !== 'all' ? { level: 'ad', adset_id: selectedAdSetId }
+      : selectedCampaignId !== 'all' ? { level: 'ad', campaign_id: selectedCampaignId }
+      : { level: 'ad' };
+
   const { data: creativeRanking } = useQuery({
-    queryKey: ['meta-dash-creatives', accountId, selectedCampaignId, currFromStr, currToStr],
-    enabled: hasMetaSetup && isVisible('creatives'), // poupar api se estiver fechado
+    queryKey: ['meta-dash-creatives', accountId, selectedCampaignId, selectedAdSetId, currFromStr, currToStr],
+    enabled: hasMetaSetup && isVisible('creatives'),
     queryFn: async () => {
-      const res = await insights_custom(token, accountId, rankingParams as any);
+      const res = await insights_custom(token, accountId, { ...rankingParamsBase, fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 });
       const data = (res as any).data || res || [];
       const parsed = data.map((d: any) => ({ ...parseMetricsObject(d), ad_id: d.ad_id, ad_name: d.ad_name, creativeDetails: null })).filter((m: any) => m.spend > 0);
       const sorted = parsed.sort((a: any, b: any) => {
@@ -243,22 +251,29 @@ export default function DashboardPage() {
 
       async function enrichAds(adsList: any[]) {
         return Promise.all(adsList.map(async (ad: any) => {
-           try {
-              if (!ad.ad_id) return ad;
-              const adInfo = await obter_criativo_do_anuncio(token, ad.ad_id);
-              ad.creativeDetails = adInfo?.creative || null;
-           } catch { }
-           return ad;
+           try { if (ad.ad_id) { ad.creativeDetails = (await obter_criativo_do_anuncio(token, ad.ad_id))?.creative || null; } } catch { } return ad;
         }));
       }
-
       return { best: await enrichAds(best), worst: await enrichAds(worst), medianCpa: isNaN(avgCpa) ? 0 : avgCpa };
     }
   });
 
-  // ==========================================
+  // ADSET RANKING (Saúde dos Conjuntos) - Traz todos da Campanha (Filtro útil antes do drill-down Adset)
+  const adsetRankingParams = selectedCampaignId !== 'all' ? { level: 'adset', campaign_id: selectedCampaignId } : { level: 'adset' };
+  const { data: adSetRanking } = useQuery({
+    queryKey: ['meta-dash-adset-ranking', accountId, selectedCampaignId, currFromStr, currToStr],
+    enabled: hasMetaSetup && isVisible('adsets') && selectedAdSetId === 'all',
+    queryFn: async () => {
+      const res = await insights_custom(token, accountId, { ...adsetRankingParams, fields: 'adset_id,adset_name,spend,actions,cpc,ctr,cpm', time_range: currTimeRangeJSON, limit: 100 });
+      const data = (res as any).data || res || [];
+      const parsed = data.map((d: any) => ({ ...parseMetricsObject(d), adset_id: d.adset_id, adset_name: d.adset_name })).filter((m: any) => m.spend > 0);
+      // Order by Highest Spend (Focus the optimization effort)
+      return parsed.sort((a:any, b:any) => b.spend - a.spend);
+    }
+  });
+
+
   // PARSERS
-  // ==========================================
   function parseMetricsObject(m: any) {
     const isWpp = m.actions?.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
     const isLead = m.actions?.find((a: any) => a.action_type === 'lead');
@@ -290,40 +305,23 @@ export default function DashboardPage() {
     return _in;
   }, [currMetrics, prevMetrics, texts]);
 
-
-  // ==========================================
-  // RENDER UI
-  // ==========================================
-
   if (isMetaSetupLoading) return <div className="p-20 flex justify-center"><BarChart className="animate-spin w-10 h-10 text-primary" /></div>;
   if (!hasMetaSetup) return (
      <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
        <div className="rounded-full bg-secondary p-6 mb-4"><SettingsIcon className="h-10 w-10 text-muted-foreground" /></div>
-       <h2 className="text-xl font-bold mb-2">Conecte a Inteligência</h2>
-       <p className="text-muted-foreground max-w-md mb-6">A agência precisa vincular a Token Meta nas configurações para alimentar a plataforma ao vivo.</p>
-       <Link to="/settings"><Button>Vincular no Facebook Ads</Button></Link>
+       <h2 className="text-xl font-bold mb-2">Conecte a Inteligência</h2><Link to="/settings"><Button>Vincular no Facebook Ads</Button></Link>
      </div>
   );
 
   return (
     <div className="bg-background min-h-[100dvh]">
-      
-      {/* =======================================
-          STIKCY HEADER & SELETORES
-          ======================================= */}
       <div className="sticky top-0 z-30 w-full border-b border-border bg-background/95 backdrop-blur shadow-[0_2px_10px_rgba(0,0,0,0.05)] px-4 sm:px-6 py-4 flex flex-col xl:flex-row items-center justify-between gap-4">
-        
         <div className="flex items-center gap-3 w-full xl:w-auto overflow-hidden">
-          <div className="h-11 w-11 rounded-full bg-primary/10 border border-primary/20 flex flex-shrink-0 items-center justify-center text-primary shadow-sm">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
+          <div className="h-11 w-11 rounded-full bg-primary/10 border border-primary/20 flex flex-shrink-0 items-center justify-center text-primary shadow-sm"><ShieldCheck className="w-5 h-5" /></div>
           <div className="min-w-0">
-            <h1 className="text-lg font-black tracking-tight truncate">
-               <EditableText value={texts.headerTitle} onChange={(v: string) => updateText('headerTitle', v)} className="text-lg font-black" />
-            </h1>
+            <h1 className="text-lg font-black tracking-tight truncate"><EditableText value={texts.headerTitle} onChange={(v: string) => updateText('headerTitle', v)} className="text-lg font-black" /></h1>
             <p className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 opacity-80 truncate">
-               <span className="w-1.5 h-1.5 rounded-full bg-success ring-2 ring-success/20 animate-pulse flex-shrink-0"></span> 
-               <EditableText value={texts.headerSubtitle} onChange={(v: string) => updateText('headerSubtitle', v)} className="text-[10px]" />
+               <span className="w-1.5 h-1.5 rounded-full bg-success ring-2 ring-success/20 animate-pulse flex-shrink-0"></span> <EditableText value={texts.headerSubtitle} onChange={(v: string) => updateText('headerSubtitle', v)} className="text-[10px]" />
             </p>
           </div>
         </div>
@@ -331,41 +329,39 @@ export default function DashboardPage() {
         <div className="flex flex-wrap items-center justify-end gap-2.5 w-full xl:w-auto">
           <DateRangePicker />
           <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
-            <SelectTrigger className="w-[180px] sm:w-[220px] h-9 bg-card font-semibold text-xs border-border flex-1 max-w-[220px] truncate focus:ring-primary/50">
-              <SelectValue placeholder="Alvo Analítico..." />
+            <SelectTrigger className="w-[180px] h-9 bg-card font-semibold text-xs border-border flex-1 max-w-[200px] truncate">
+              <SelectValue placeholder="Alvo Campanha..." />
             </SelectTrigger>
             <SelectContent className="max-w-[300px]">
-              <SelectItem value="all" className="font-bold border-b border-border mb-1">📊 Mostrar Tudo (Base Global)</SelectItem>
+              <SelectItem value="all" className="font-bold border-b border-border mb-1">📊 Mostrar Tudo Global</SelectItem>
               {campaignList?.map((c: any) => (<SelectItem key={c.id} value={c.id} className="text-xs truncate">{c.name}</SelectItem>))}
             </SelectContent>
           </Select>
+          
+          {selectedCampaignId !== 'all' && (
+            <Select value={selectedAdSetId} onValueChange={setSelectedAdSetId}>
+              <SelectTrigger className="w-[180px] h-9 bg-card/50 ring-1 ring-primary/20 bg-primary/5 font-semibold text-xs border-border flex-1 max-w-[200px] truncate shadow-inner">
+                 <SelectValue placeholder="Alvo AdSet..." />
+              </SelectTrigger>
+              <SelectContent className="max-w-[300px]">
+                <SelectItem value="all" className="font-bold border-b border-border mb-1 text-primary">⚡ Cmp - Tudo</SelectItem>
+                {adSetList?.map((c: any) => (<SelectItem key={c.id} value={c.id} className="text-xs truncate">{c.name}</SelectItem>))}
+              </SelectContent>
+            </Select>
+          )}
+
           <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 text-xs px-3 min-w-max" onClick={() => refetch()} disabled={isMetricsLoading}>
-            <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 ${isMetricsLoading ? 'animate-spin' : ''}`} /> 
-            <EditableText value={texts.btnUpdate} onChange={(v:string) => updateText('btnUpdate', v)} />
+            <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 ${isMetricsLoading ? 'animate-spin' : ''}`} /> <EditableText value={texts.btnUpdate} onChange={(v:string) => updateText('btnUpdate', v)} />
           </Button>
-          <Link to="/insights">
-            <Button size="sm" variant="outline" className="h-9 gap-1.5 text-[10px] uppercase font-black tracking-wider text-muted-foreground hover:text-foreground hidden sm:flex">
-               <SparklesIcon className="w-3.5 h-3.5 text-orange-400" /> 
-               <EditableText value={texts.btnInsights} onChange={(v:string) => updateText('btnInsights', v)} />
-            </Button>
-          </Link>
         </div>
       </div>
 
-      {/* =======================================
-          CONTEÚDO E PAINEIS FLEXÍVEIS
-          ======================================= */}
       <div className="p-4 sm:p-6 max-w-[1400px] mx-auto space-y-8 pb-32">
-        
-        {/* KPI RADAR */}
         {isVisible('kpis') && (
           <div className="animate-in fade-in duration-300">
             <div className="flex items-center justify-between mb-3 border-b border-border/50 pb-2">
-              <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5">
-                <BarChart className="w-3 h-3 flex-shrink-0" />
-                <EditableText value={texts.titleKpis} onChange={(v:string) => updateText('titleKpis', v)} />
-              </h2>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10" onClick={() => togglePanel('kpis')} title="Ocultar Painel"><X className="w-4 h-4"/></Button>
+              <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5"><BarChart className="w-3 h-3 flex-shrink-0" /><EditableText value={texts.titleKpis} onChange={(v:string) => updateText('titleKpis', v)} /></h2>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10" onClick={() => togglePanel('kpis')}><X className="w-4 h-4"/></Button>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                <KpiCard title="Investimento (Spend)" value={formatCurrency(m.spend)} varPct={calcVariation(m.spend, p.spend)} invertGood={true} />
@@ -378,56 +374,33 @@ export default function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-
-          {/* COLUNA ESQUERDA (FUNIL + CRIATIVOS) */}
           <div className={`space-y-6 min-w-0 flex-1 transition-all duration-300 ${isVisible('insights') ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
             
-            {/* O FUNIL HORIZONTAL */}
             {isVisible('funnel') && (
               <div className="space-y-3 min-w-0 animate-in fade-in zoom-in-95 duration-300 relative">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 truncate">
-                    <FilterIcon className="w-3 h-3 flex-shrink-0" /> 
-                    <EditableText value={texts.titleFunnel} onChange={(v:string) => updateText('titleFunnel', v)} className="truncate" />
-                  </h2>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 ml-2" onClick={() => togglePanel('funnel')} title="Ocultar Painel"><X className="w-4 h-4"/></Button>
+                  <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 truncate"><FilterIcon className="w-3 h-3 flex-shrink-0" /> <EditableText value={texts.titleFunnel} onChange={(v:string) => updateText('titleFunnel', v)} className="truncate" /></h2>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 ml-2" onClick={() => togglePanel('funnel')}><X className="w-4 h-4"/></Button>
                 </div>
-                
                 <Card className="bg-card/50 backdrop-blur border-border/50 shadow-sm overflow-hidden ring-1 ring-border shadow-inner w-full min-w-0">
-                  {/* O scrollbar x auto previne colisão com painel adjacente */}
                   <CardContent className="p-4 sm:p-6 overflow-x-auto min-h-[160px] flex items-center scrollbar-thin scrollbar-thumb-muted">
-                     {m.impressions === 0 && !isMetricsLoading ? (
-                        <div className="w-full text-center text-xs font-bold text-muted-foreground py-8 opacity-70">
-                          <EditableText value={texts.txtEmptyData} onChange={(v:string) => updateText('txtEmptyData', v)} />
-                        </div>
+                     {m.impressions === 0 && !isMetricsLoading ? (<div className="w-full text-center text-xs font-bold text-muted-foreground py-8 opacity-70"><EditableText value={texts.txtEmptyData} onChange={(v:string) => updateText('txtEmptyData', v)} /></div>
                      ) : (
                        <div className="flex items-center w-full min-w-[700px] justify-between relative mx-auto pb-2">
                           <div className="absolute top-1/2 left-10 right-10 h-1 bg-border/50 -translate-y-1/2 rounded-full -z-10 shadow-inner hidden sm:block"></div>
-
-                          {/* BLOCOS DA JORNADA */}
                           <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-primary/50 transition-colors">
                              <span className="text-[10px] font-black tracking-widest uppercase text-muted-foreground mb-1"><Eye className="w-3 h-3 inline mr-1"/> Descoberta</span>
                              <span className="text-3xl font-black text-foreground mb-1 tracking-tighter">{formatNumber(m.impressions)}</span>
                              <span className="text-[9px] bg-secondary/80 text-secondary-foreground font-black px-2 py-0.5 rounded-sm uppercase tracking-wider opacity-80">Impressões</span>
                           </div>
-
-                          <div className="flex flex-col items-center z-10 px-0.5">
-                             <span className={`text-[10px] font-black px-2 py-1 rounded shadow-sm mb-1 ${m.ctr >= BENCHMARKS.ctr ? 'bg-success text-success-foreground' : 'bg-destructive/10 text-destructive'}`}>{m.ctr.toFixed(2)}% CTR</span>
-                             <ArrowRight className="w-4 h-4 text-border" />
-                          </div>
-
+                          <div className="flex flex-col items-center z-10 px-0.5"><span className={`text-[10px] font-black px-2 py-1 rounded shadow-sm mb-1 ${m.ctr >= BENCHMARKS.ctr ? 'bg-success text-success-foreground' : 'bg-destructive/10 text-destructive'}`}>{m.ctr.toFixed(2)}% CTR</span><ArrowRight className="w-4 h-4 text-border" /></div>
                           <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-primary/50 transition-colors">
                              <span className="text-[10px] font-black tracking-widest uppercase text-muted-foreground mb-1"><MousePointer className="w-3 h-3 inline mr-1"/> Intenção</span>
                              <span className="text-3xl font-black text-foreground mb-1 tracking-tighter">{formatNumber(m.clicks)}</span>
                              <span className="text-[9px] bg-secondary/80 text-secondary-foreground font-black px-2 py-0.5 rounded-sm uppercase tracking-wider opacity-80">Cliques</span>
                              <span className="text-[9px] font-bold text-muted-foreground mt-2 bg-secondary/30 px-2 py-0.5 rounded">CPC {formatCurrency(m.cpc)}</span>
                           </div>
-
-                          <div className="flex flex-col items-center z-10 px-0.5">
-                             <span className={`text-[10px] font-black px-2 py-1 rounded shadow-sm mb-1 ${conversionRate >= BENCHMARKS.conversao ? 'bg-success text-success-foreground' : 'bg-primary/10 text-primary'}`}>{conversionRate.toFixed(2)}% CV</span>
-                             <ArrowRight className="w-4 h-4 text-border" />
-                          </div>
-
+                          <div className="flex flex-col items-center z-10 px-0.5"><span className={`text-[10px] font-black px-2 py-1 rounded shadow-sm mb-1 ${conversionRate >= BENCHMARKS.conversao ? 'bg-success text-success-foreground' : 'bg-primary/10 text-primary'}`}>{conversionRate.toFixed(2)}% CV</span><ArrowRight className="w-4 h-4 text-border" /></div>
                           <div className="flex flex-col items-center bg-primary/5 z-10 p-4 border-2 border-primary/50 rounded-xl w-[200px] shadow-[0_8px_30px_rgba(var(--primary),0.1)] ring-2 ring-primary/20 ring-offset-2 ring-offset-background group hover:scale-[1.02] transition-transform cursor-default">
                              <span className="text-[10px] font-black tracking-widest uppercase text-primary mb-1"><Target className="w-3 h-3 inline mr-1"/> Aquisição</span>
                              <span className="text-3xl font-black text-primary mb-1 tracking-tighter drop-shadow-sm">{formatNumber(m.results)}</span>
@@ -441,71 +414,88 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* BATALHA CRIATIVOS */}
+            {/* ADSETS RANKING - Só exibe se não escondeu e se houver AdSets multi, i.e., Drilldown adset == 'all' */}
+            {isVisible('adsets') && selectedAdSetId === 'all' && adSetRanking && adSetRanking.length > 0 && (
+              <div className="pt-2 min-w-0 animate-in fade-in slide-in-from-bottom-5 duration-500">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 truncate"><Users className="w-3 h-3 text-cyan-500 flex-shrink-0" /> <EditableText value={texts.titleAdSets} onChange={(v:string) => updateText('titleAdSets', v)} /></h2>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 ml-2" onClick={() => togglePanel('adsets')}><X className="w-4 h-4"/></Button>
+                </div>
+                <Card className="bg-card shadow-sm ring-1 ring-background overflow-hidden">
+                   <CardContent className="p-0 overflow-x-auto">
+                      <table className="w-full text-left text-xs text-muted-foreground">
+                         <thead className="bg-secondary/20 border-b border-border text-[10px] uppercase font-black tracking-wider">
+                           <tr>
+                             <th className="p-3 pl-4">Nome do Conjunto</th>
+                             <th className="p-3 text-right">Gasto (Saída)</th>
+                             <th className="p-3 text-right">Aquis. (Volume)</th>
+                             <th className="p-3 text-right pr-4">CPA (Custo Saúde)</th>
+                           </tr>
+                         </thead>
+                         <tbody className="divide-y divide-border/50">
+                            {adSetRanking.map((adset: any, i:number) => {
+                               const thisCpa = adset.results > 0 ? adset.spend / adset.results : adset.spend;
+                               const globalCpa = m.cpa || 0;
+                               const isGood = thisCpa <= (globalCpa * 1.1) && adset.results > 0;
+                               const isBad = thisCpa > (globalCpa * 1.5) || adset.results === 0;
+
+                               return (
+                                 <tr key={adset.adset_id} className={`hover:bg-secondary/10 transition-colors ${isGood ? 'bg-success/5' : isBad ? 'bg-destructive/5' : ''}`}>
+                                   <td className="p-3 pl-4 font-bold text-foreground max-w-[150px] truncate" title={adset.adset_name}>{adset.adset_name}</td>
+                                   <td className="p-3 text-right font-mono text-foreground/80">{formatCurrency(adset.spend)}</td>
+                                   <td className="p-3 text-right font-black text-foreground">{adset.results}</td>
+                                   <td className="p-3 text-right pr-4">
+                                      <Badge variant="outline" className={`font-mono text-[9px] px-1.5 py-0 shadow-sm ${isGood ? 'text-success border-success/30 bg-success/10' : isBad ? 'text-destructive border-destructive/30 bg-destructive/10' : ''}`}>
+                                        {formatCurrency(thisCpa)}
+                                      </Badge>
+                                   </td>
+                                 </tr>
+                               );
+                            })}
+                         </tbody>
+                      </table>
+                   </CardContent>
+                </Card>
+              </div>
+            )}
+
             {isVisible('creatives') && (
               <div className="pt-2 min-w-0 animate-in fade-in slide-in-from-bottom-5 duration-500">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 truncate">
-                    <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" /> 
-                    <EditableText value={texts.titleCreatives} onChange={(v:string) => updateText('titleCreatives', v)} />
-                  </h2>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 ml-2" onClick={() => togglePanel('creatives')} title="Ocultar Painel"><X className="w-4 h-4"/></Button>
+                  <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 truncate"><Flame className="w-3 h-3 text-orange-500 flex-shrink-0" /> <EditableText value={texts.titleCreatives} onChange={(v:string) => updateText('titleCreatives', v)} /></h2>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 ml-2" onClick={() => togglePanel('creatives')}><X className="w-4 h-4"/></Button>
                 </div>
-                
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* CAIXA MELHORES */}
                   <Card className="bg-success/5 border-success/30 shadow-sm ... ring-1 ring-background">
                     <CardContent className="p-4 flex flex-col h-full min-w-0 relative overflow-hidden group">
                       <div className="absolute -right-10 -top-10 text-success opacity-5 pointer-events-none transform group-hover:scale-110 transition-transform"><Trophy className="w-40 h-40" /></div>
-                      <h3 className="text-[11px] font-black uppercase text-success mb-4 flex items-center gap-1.5 opacity-90 z-10 w-full truncate">
-                         <ArrowRight className="w-3.5 h-3.5 -rotate-45 shrink-0" /> 
-                         <EditableText value={texts.txtBestAds} onChange={(v:string) => updateText('txtBestAds', v)} />
-                      </h3>
+                      <h3 className="text-[11px] font-black uppercase text-success mb-4 flex items-center gap-1.5 opacity-90 z-10 w-full truncate"><ArrowRight className="w-3.5 h-3.5 -rotate-45 shrink-0" /> <EditableText value={texts.txtBestAds} onChange={(v:string) => updateText('txtBestAds', v)} /></h3>
                       <div className="space-y-2 flex-grow z-10">
                         {creativeRanking?.best?.length ? creativeRanking.best.map((ad:any, i:number) => (
                            <div key={i} onClick={() => setSelectedAdModal({...ad, rank: 'best'})} className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-success/20 items-center hover:bg-background transition-all hover:scale-[1.02] hover:shadow-[0_8px_20px_rgba(0,0,0,0.12)] cursor-pointer shadow-sm relative group/ad">
-                              <div className="absolute right-2 top-2 opacity-0 group-hover/ad:opacity-100 transition-opacity bg-background/95 backdrop-blur px-2 py-1 rounded shadow text-[9px] font-mono text-muted-foreground border border-border z-20 pointer-events-none">
-                                CTR: {formatPercent(ad.ctr)} | CPC: {formatCurrency(ad.cpc)}
-                              </div>
-                              <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 relative">
-                                 {ad.creativeDetails?.image_url || ad.creativeDetails?.thumbnail_url ? <img src={ad.creativeDetails.image_url || ad.creativeDetails.thumbnail_url} className="w-full h-full object-cover" alt="thumb" /> : <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />}
-                              </div>
+                              <div className="absolute right-2 top-2 opacity-0 group-hover/ad:opacity-100 transition-opacity bg-background/95 backdrop-blur px-2 py-1 rounded shadow text-[9px] font-mono text-muted-foreground border border-border z-20 pointer-events-none">CTR: {formatPercent(ad.ctr)} | CPC: {formatCurrency(ad.cpc)}</div>
+                              <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 relative">{ad.creativeDetails?.image_url || ad.creativeDetails?.thumbnail_url ? <img src={ad.creativeDetails.image_url || ad.creativeDetails.thumbnail_url} className="w-full h-full object-cover" alt="thumb" /> : <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />}</div>
                               <div className="flex-1 min-w-0">
                                   <p className="text-xs font-bold truncate text-foreground/90 w-full" title={ad.ad_name}>{ad.ad_name}</p>
-                                  <div className="flex justify-between items-center mt-1.5 gap-2">
-                                     <span className="text-[10px] font-mono text-muted-foreground font-semibold truncate shrink-0">CPA {formatCurrency(ad.results>0 ? ad.spend/ad.results : ad.spend)}</span>
-                                     <Badge variant="default" className="bg-success hover:bg-success text-[9px] px-1.5 py-0 shadow-sm shrink-0">{ad.results} cap</Badge>
-                                  </div>
+                                  <div className="flex justify-between items-center mt-1.5 gap-2"><span className="text-[10px] font-mono text-muted-foreground font-semibold truncate shrink-0">CPA {formatCurrency(ad.results>0 ? ad.spend/ad.results : ad.spend)}</span><Badge variant="default" className="bg-success hover:bg-success text-[9px] px-1.5 py-0 shadow-sm shrink-0">{ad.results} cap</Badge></div>
                               </div>
                            </div>
                         )) : <p className="text-xs text-muted-foreground p-4">Aguardando dados.</p>}
                       </div>
                     </CardContent>
                   </Card>
-
-                  {/* CAIXA PIORES */}
                   <Card className="bg-destructive/5 border-destructive/30 shadow-sm ... ring-1 ring-background">
                     <CardContent className="p-4 flex flex-col h-full min-w-0 relative overflow-hidden group">
                       <div className="absolute -right-6 -bottom-6 text-destructive opacity-5 pointer-events-none transform group-hover:-rotate-12 transition-transform"><AlertTriangle className="w-32 h-32" /></div>
-                      <h3 className="text-[11px] font-black uppercase text-destructive mb-4 flex items-center gap-1.5 opacity-90 z-10 w-full truncate">
-                         <TrendingDown className="w-3.5 h-3.5 shrink-0" /> 
-                         <EditableText value={texts.txtWorstAds} onChange={(v:string) => updateText('txtWorstAds', v)} />
-                      </h3>
+                      <h3 className="text-[11px] font-black uppercase text-destructive mb-4 flex items-center gap-1.5 opacity-90 z-10 w-full truncate"><TrendingDown className="w-3.5 h-3.5 shrink-0" /> <EditableText value={texts.txtWorstAds} onChange={(v:string) => updateText('txtWorstAds', v)} /></h3>
                       <div className="space-y-2 flex-grow z-10">
                         {creativeRanking?.worst?.length ? creativeRanking.worst.map((ad:any, i:number) => (
                            <div key={i} onClick={() => setSelectedAdModal({...ad, rank: 'worst'})} className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-destructive/20 items-center transition-all hover:bg-background hover:scale-[1.02] hover:shadow-[0_8px_20px_rgba(0,0,0,0.12)] cursor-pointer shadow-sm relative group/ad">
-                              <div className="absolute right-2 top-2 opacity-0 group-hover/ad:opacity-100 transition-opacity bg-background/95 backdrop-blur px-2 py-1 rounded shadow text-[9px] font-mono text-muted-foreground border border-border z-20 pointer-events-none">
-                                CTR: {formatPercent(ad.ctr)} | CPC: {formatCurrency(ad.cpc)}
-                              </div>
-                              <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 grayscale group-hover/ad:grayscale-0 transition-all">
-                                 {ad.creativeDetails?.image_url || ad.creativeDetails?.thumbnail_url ? <img src={ad.creativeDetails.image_url || ad.creativeDetails.thumbnail_url} className="w-full h-full object-cover" alt="thumb" /> : <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />}
-                              </div>
+                              <div className="absolute right-2 top-2 opacity-0 group-hover/ad:opacity-100 transition-opacity bg-background/95 backdrop-blur px-2 py-1 rounded shadow text-[9px] font-mono text-muted-foreground border border-border z-20 pointer-events-none">CTR: {formatPercent(ad.ctr)} | CPC: {formatCurrency(ad.cpc)}</div>
+                              <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 grayscale group-hover/ad:grayscale-0 transition-all">{ad.creativeDetails?.image_url || ad.creativeDetails?.thumbnail_url ? <img src={ad.creativeDetails.image_url || ad.creativeDetails.thumbnail_url} className="w-full h-full object-cover" alt="thumb" /> : <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />}</div>
                               <div className="flex-1 min-w-0">
                                   <p className="text-xs font-bold truncate text-foreground/90 w-full" title={ad.ad_name}>{ad.ad_name}</p>
-                                  <div className="flex justify-between items-center mt-1.5 gap-2">
-                                     <span className="text-[10px] font-mono text-destructive/80 font-semibold truncate shrink-0">Lixo {formatCurrency(ad.spend)}</span>
-                                     <Badge variant="destructive" className="bg-destructive/80 text-[9px] px-1.5 py-0 shadow-sm shrink-0">{ad.results} cap</Badge>
-                                  </div>
+                                  <div className="flex justify-between items-center mt-1.5 gap-2"><span className="text-[10px] font-mono text-destructive/80 font-semibold truncate shrink-0">Lixo {formatCurrency(ad.spend)}</span><Badge variant="destructive" className="bg-destructive/80 text-[9px] px-1.5 py-0 shadow-sm shrink-0">{ad.results} cap</Badge></div>
                               </div>
                            </div>
                         )) : <p className="text-xs text-muted-foreground p-4">Não há ads críticos.</p>}
@@ -515,19 +505,24 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+
+            {/* CHARTS DA API BREAKDOWNS (NOVO) */}
+            <AudienceCharts 
+               selectedCampaignId={selectedCampaignId} 
+               selectedAdSetId={selectedAdSetId} 
+               isVisible={isVisible('audience')}
+               onClose={() => togglePanel('audience')}
+               texts={texts}
+            />
+
           </div>
 
-          {/* COLUNA DIREITA (AUTO INSIGHTS) */}
           {isVisible('insights') && (
             <div className="lg:col-span-4 lg:sticky lg:top-24 space-y-3 min-w-0 h-[calc(100vh-140px)] animate-in fade-in slide-in-from-right-5 duration-500 max-h-[1000px]">
               <div className="flex items-center justify-between">
-                <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 truncate">
-                  <Lightbulb className="w-3 h-3 text-warning flex-shrink-0" />
-                  <EditableText value={texts.titleInsights} onChange={(v:string) => updateText('titleInsights', v)} className="truncate" />
-                </h2>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 shrink-0 ml-2" onClick={() => togglePanel('insights')} title="Ocultar Painel"><X className="w-4 h-4"/></Button>
+                <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 truncate"><Lightbulb className="w-3 h-3 text-warning flex-shrink-0" /><EditableText value={texts.titleInsights} onChange={(v:string) => updateText('titleInsights', v)} className="truncate" /></h2>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 shrink-0 ml-2" onClick={() => togglePanel('insights')}><X className="w-4 h-4"/></Button>
               </div>
-
                <Card className="bg-card border-none ring-1 ring-border shadow-md shadow-black/5 h-[calc(100%-2rem)] flex flex-col min-w-0">
                 <CardContent className="p-0 flex flex-col h-full overflow-hidden">
                    <div className="p-4 bg-primary/5 border-b border-primary/10 text-[11px] text-muted-foreground font-semibold flex items-start gap-2 leading-relaxed tracking-wide">
@@ -535,19 +530,10 @@ export default function DashboardPage() {
                      <span>Inteligência AIB aplicada base ({currFromStr} vs {prevDateRange.from.toISOString().split('T')[0]}).</span>
                    </div>
                    <div className="p-4 space-y-3 flex-1 overflow-y-auto scrollbar-thin">
-                     {autoInsights.map((insight, idx) => (
-                        <InsightItem 
-                           key={idx} type={insight.type} title={insight.title} message={insight.message} action={insight.action}
-                           texts={texts} updateText={updateText}
-                        />
-                     ))}
+                     {autoInsights.map((insight, idx) => (<InsightItem key={idx} type={insight.type} title={insight.title} message={insight.message} action={insight.action} texts={texts} updateText={updateText}/>))}
                    </div>
                    <div className="p-4 border-t border-border bg-card/80 backdrop-blur shrink-0 hidden md:block">
-                     <Link to="/insights">
-                        <Button variant="default" className="w-full text-xs font-black uppercase h-10 shadow-lg shadow-primary/20">
-                           <SparklesIcon className="w-4 h-4 mr-2 text-orange-300" /> Claude Central
-                        </Button>
-                     </Link>
+                     <Link to="/insights"><Button variant="default" className="w-full text-xs font-black uppercase h-10 shadow-lg shadow-primary/20"><SparklesIcon className="w-4 h-4 mr-2 text-orange-300" /> Claude Central</Button></Link>
                    </div>
                 </CardContent>
               </Card>
@@ -557,26 +543,19 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* FLOAT BUTTON: RESTAURAR LAYOUT (Aparece se algum estiver oculto) */}
       {hidden.length > 0 && (
-         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-bounce cursor-pointer" onClick={() => {setHidden([]); localStorage.removeItem('aib_hidden_panels')}}>
-            <Badge variant="secondary" className="px-4 py-2 font-black text-xs shadow-xl border border-primary/20 bg-background hover:bg-secondary cursor-pointer gap-2 opacity-90 hover:opacity-100 transition-opacity">
-               <PanelTopInactive className="w-4 h-4 text-primary" /> Restaurar Blocos Ocultos ({hidden.length})
-            </Badge>
+         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-bounce cursor-pointer justify-center flex" onClick={() => {setHidden([]); localStorage.removeItem('aib_hidden_panels')}}>
+            <Badge variant="secondary" className="px-4 py-2 font-black text-xs shadow-xl border border-primary/20 bg-background hover:bg-secondary cursor-pointer gap-2 opacity-90 hover:opacity-100 transition-opacity"><PanelTopInactive className="w-4 h-4 text-primary" /> Restaurar Blocos Ocultos ({hidden.length})</Badge>
          </div>
       )}
 
-      {/* =========================================
-          AD PREVIEW MODAL (RAIO-X DO CRIATIVO)
-          ========================================= */}
+      {/* AD PREVIEW MODAL */}
       <Dialog open={!!selectedAdModal} onOpenChange={(o) => (!o && setSelectedAdModal(null))}>
          <DialogContent className="max-w-[90vw] w-[800px] bg-card border-border shadow-2xl p-0 gap-0 overflow-hidden mt-[5vh]">
              {selectedAdModal && (() => {
                const ad = selectedAdModal;
                const c = ad.creativeDetails || {};
-               // Melhor imagem original disponível da meta na API Graph
                const thumb = c.image_url || c.object_story_spec?.video_data?.image_url || c.thumbnail_url;
-               
                const rankColor = ad.rank === 'best' ? 'text-success bg-success/10 border-success/30' : 'text-destructive bg-destructive/10 border-destructive/30';
                const rankIcon = ad.rank === 'best' ? <Trophy className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />;
 
@@ -589,31 +568,21 @@ export default function DashboardPage() {
 
                     <div className="md:w-7/12 flex flex-col bg-background relative overflow-hidden">
                         <DialogHeader className="p-6 border-b border-border pb-4 shrink-0">
-                           <DialogTitle className="text-lg font-black leading-tight flex items-start gap-2 pr-6 break-words" title={ad.ad_name} style={{overflowWrap: 'anywhere'}}>
-                             {ad.ad_name}
-                           </DialogTitle>
+                           <DialogTitle className="text-lg font-black leading-tight flex items-start gap-2 pr-6 break-words" title={ad.ad_name} style={{overflowWrap: 'anywhere'}}>{ad.ad_name}</DialogTitle>
                            <p className="text-[10px] text-muted-foreground font-mono mt-1">ID: {ad.ad_id}</p>
                         </DialogHeader>
-
                         <div className="p-6 flex-1 overflow-y-auto space-y-6 scrollbar-thin">
                            <div className={`p-4 rounded-xl border flex gap-3 ${rankColor}`}>
                               {rankIcon}
                               <div>
                                  <h4 className="text-sm font-bold opacity-90">Diagnóstico do Algoritmo</h4>
-                                 <p className="text-xs opacity-80 mt-1">
-                                   Este criativo está performando <b>{ad.rank === 'best' ? 'acima' : 'abaixo'} da média</b>.
-                                   O custo de conversão é de <span className="font-bold underline decoration-current underline-offset-2">{formatCurrency(ad.cpa)}</span>, contra a média geral de {formatCurrency(creativeRanking?.medianCpa || 0)}.
-                                 </p>
+                                 <p className="text-xs opacity-80 mt-1">Este criativo está performando <b>{ad.rank === 'best' ? 'acima' : 'abaixo'} da média</b>. O custo de conversão é de <span className="font-bold underline decoration-current underline-offset-2">{formatCurrency(ad.cpa)}</span>, contra a média geral de {formatCurrency(creativeRanking?.medianCpa || 0)}.</p>
                               </div>
                            </div>
-
                            <div className="space-y-2">
                              <h4 className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Copy / Conteúdo Principal</h4>
-                             <div className="text-sm text-foreground/90 whitespace-pre-wrap bg-secondary/20 p-4 rounded-lg border border-border/50 text-left leading-relaxed">
-                                {c.body || c.title || <span className="italic opacity-50">Texto/Verso dinâmico (Advantage+ não extraível).</span>}
-                             </div>
+                             <div className="text-sm text-foreground/90 whitespace-pre-wrap bg-secondary/20 p-4 rounded-lg border border-border/50 text-left leading-relaxed">{c.body || c.title || <span className="italic opacity-50">Texto dinâmico não extraível via API unificada.</span>}</div>
                            </div>
-
                            <div className="grid grid-cols-3 gap-3">
                               <div className="p-3 bg-secondary/10 rounded-lg border border-border/50 text-center"><p className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Custo (CPM)</p><p className="text-sm font-mono font-bold">{formatCurrency(ad.cpm)}</p></div>
                               <div className="p-3 bg-secondary/10 rounded-lg border border-border/50 text-center"><p className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Atração (CTR)</p><p className="text-sm font-mono font-bold">{formatPercent(ad.ctr)}</p></div>

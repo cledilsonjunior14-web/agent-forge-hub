@@ -26,7 +26,7 @@ function App() {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename="/aib-ads">
           <AuthProvider>
             <Routes>
               <Route path="/login" element={<Login />} />

@@ -1,456 +1,316 @@
-import React, { useState, useEffect } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useMetaContext } from '@/hooks/useMetaContext';
-import { listar_contas, info_conta } from '@/services/metaApi';
+import { info_conta, insights_custom } from '@/services/metaApi';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Bell, Plus, Copy, Edit2, Trash2, 
-  CheckSquare, XSquare, Search,
-  Server, Smartphone, LayoutGrid, Menu
-} from 'lucide-react';
-import { formatCurrency } from '@/lib/formatters';
+import { AlertTriangle, AlertCircle, CheckCircle2, DollarSign, Settings as SettingsIcon, ShieldCheck, Activity, Target, ShieldAlert, ArrowRight } from 'lucide-react';
+import { formatCurrency, formatPercent } from '@/lib/formatters';
 
-// Icons customizados para a tabela e modal
-const ToggleActiveIcon = () => (
-  <svg width="36" height="20" viewBox="0 0 36 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="36" height="20" rx="10" fill="#22c55e"/>
-    <circle cx="26" cy="10" r="6" fill="white"/>
-  </svg>
-);
-const ToggleInactiveIcon = () => (
-   <svg width="36" height="20" viewBox="0 0 36 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-     <rect width="36" height="20" rx="10" fill="#3f3f46"/>
-     <circle cx="10" cy="10" r="6" fill="#a1a1aa"/>
-   </svg>
-);
-const MetaIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500">
-     <text x="5" y="16" fontFamily="Arial" fontSize="20" fontWeight="bold">f</text>
-  </svg>
-);
-const GoogleIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
-    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-  </svg>
-);
-
-interface AlertRule {
-  id: string;
-  active: boolean;
-  name: string;
-  type: 'saldo' | 'erro';
-  channel: 'meta' | 'google';
-  connectionId: string;
-  adAccountId: string;
-  adAccountName: string;
-  minBalance: number;
-  messageTemplate: string;
-}
-
-const DEFAULT_MSG_TEMPLATE = "Olá,\n\nO saldo da conta de anúncios <CA> está em <SALDO>";
-
-const ACCOUNT_STATUS_MAP: Record<number, { label: string, isError: boolean }> = {
-  1: { label: 'Ativa', isError: false },
-  2: { label: 'Conta Desativada', isError: true },
-  3: { label: 'Pagamento Falhou', isError: true },
-  7: { label: 'Em Revisão', isError: true },
-  101: { label: 'Encerrada', isError: true },
-  201: { label: 'Restrita (Política)', isError: true }
+const ACCOUNT_STATUS_MAP: Record<number, { label: string, color: string, isCritical: boolean }> = {
+  1: { label: 'Ativa e Operacional', color: 'text-success', isCritical: false },
+  2: { label: 'Conta Desativada (Bloqueio)', color: 'text-destructive', isCritical: true },
+  3: { label: 'Pagamento Pendente/Falhou', color: 'text-warning', isCritical: true },
+  7: { label: 'Em Revisão de Risco', color: 'text-warning', isCritical: true },
+  8: { label: 'Em Análise de Pagamento', color: 'text-warning', isCritical: true },
+  9: { label: 'Período de Carência', color: 'text-warning', isCritical: true },
+  100: { label: 'Fechamento Pendente', color: 'text-muted-foreground', isCritical: false },
+  101: { label: 'Conta Encerrada', color: 'text-destructive', isCritical: true },
+  201: { label: 'Conta Restrita (Política)', color: 'text-destructive', isCritical: true },
+  202: { label: 'Conta Suspensa (Política)', color: 'text-destructive', isCritical: true }
 };
 
 export default function AlertsPage() {
-  const { token, hasMetaSetup } = useMetaContext();
-  const [rules, setRules] = useState<AlertRule[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
-  
-  // States do Modal (Formulário)
-  const [formName, setFormName] = useState('');
-  const [formType, setFormType] = useState<'saldo' | 'erro'>('saldo');
-  const [formChannel, setFormChannel] = useState<'meta' | 'google'>('meta');
-  const [formAccountId, setFormAccountId] = useState('');
-  const [formAccountName, setFormAccountName] = useState('');
-  const [formMinBalance, setFormMinBalance] = useState('0');
-  const [formTemplate, setFormTemplate] = useState(DEFAULT_MSG_TEMPLATE);
-  
-  // Load Rules do LocalStorage
+  const { token, accountId, hasMetaSetup } = useMetaContext();
+
+  // Settings State
+  const [showSettings, setShowSettings] = useState(false);
+  const [configs, setConfigs] = useState({
+     balanceThreshold: 100, // R$
+     cpaThresholdPct: 20, // %
+     cpmThresholdPct: 30, // %
+     ctrDropPct: 15 // %
+  });
+
   useEffect(() => {
-     const stored = localStorage.getItem('aib_multi_alerts');
-     if (stored) {
-        try { setRules(JSON.parse(stored)); } catch(e) {}
+     const saved = localStorage.getItem('aib_alerts_settings');
+     if (saved) {
+        try { setConfigs(JSON.parse(saved)); } catch (e) {}
      }
   }, []);
 
-  const saveRules = (newRules: AlertRule[]) => {
-     setRules(newRules);
-     localStorage.setItem('aib_multi_alerts', JSON.stringify(newRules));
+  const updateConfig = (key: keyof typeof configs, value: string) => {
+     const numArg = parseFloat(value) || 0;
+     const newC = { ...configs, [key]: numArg };
+     setConfigs(newC);
+     localStorage.setItem('aib_alerts_settings', JSON.stringify(newC));
   };
 
-  // Buscar lista de contas vinculadas ao Perfil! (para o Select de Contas no modal)
-  const { data: accountsList = [] } = useQuery({
-     queryKey: ['meta-accounts-list'],
-     enabled: hasMetaSetup && isModalOpen,
+  // 1. ACCOUNT HEALTH & BALANCE
+  const { data: accInfo, isLoading: isAccLoading } = useQuery({
+     queryKey: ['meta-alerts-account', accountId],
+     enabled: hasMetaSetup,
      queryFn: async () => {
         try {
-           return await listar_contas(token);
-        } catch(e) { return []; }
+           return await info_conta(token, accountId);
+        } catch(e) { return null; }
      }
   });
 
-  // Consultar TODAS as contas cadastradas simultaneamente (useQueries)
-  const activeAccountIds = Array.from(new Set(rules.map(r => r.adAccountId))).filter(Boolean);
-  const queries = useQueries({
-     queries: activeAccountIds.map(accId => ({
-        queryKey: ['meta-live-account', accId],
-        enabled: hasMetaSetup,
-        refetchInterval: 120000, // 2 mins atualizacao passiva
-        queryFn: async () => {
-           try {
-              const info = await info_conta(token, accId);
-              return { accId, data: info };
-           } catch(e) { return { accId, data: null, error: true }; }
+  // 2. DAILY METRICS DRIFT (D0 vs D-1) -> Puxamos os últimos 2 dias separados
+  const d0DateStr = new Date().toISOString().split('T')[0];
+  const d1DateStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const driftParams = { fields: 'spend,impressions,clicks,actions', time_increment: 1, limit: 14 };
+
+  const { data: driftData, isLoading: isDriftLoading } = useQuery({
+     queryKey: ['meta-alerts-drift', accountId, d1DateStr, d0DateStr],
+     enabled: hasMetaSetup,
+     queryFn: async () => {
+        const timeRangeJSON = JSON.stringify({ since: d1DateStr, until: d0DateStr });
+        const res = await insights_custom(token, accountId, { ...driftParams, time_range: timeRangeJSON, level: 'campaign' });
+        const data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
+        
+        // Agrupar por campanha para comparar os dias
+        const cmap: Record<string, { name: string; d0: any; d1: any }> = {};
+        data.forEach(d => {
+           const id = d.campaign_id;
+           if (!cmap[id]) cmap[id] = { name: d.campaign_name, d0: null, d1: null };
+           
+           const results = d.actions?.reduce((acc: number, a:any) => {
+              if (['offsite_conversion.fb_pixel_purchase', 'lead', 'onsite_conversion.messaging_conversation_started_7d'].includes(a.action_type)) return acc + Number(a.value);
+              return acc;
+           }, 0) || 0;
+           
+           const parsed = {
+               spend: Number(d.spend || 0),
+               impressions: Number(d.impressions || 0),
+               clicks: Number(d.clicks || 0),
+               results,
+               cpa: results > 0 ? Number(d.spend) / results : Number(d.spend || 0),
+               cpm: Number(d.impressions) > 0 ? (Number(d.spend) / Number(d.impressions)) * 1000 : 0,
+               ctr: Number(d.impressions) > 0 ? (Number(d.clicks) / Number(d.impressions)) * 100 : 0,
+           };
+           
+           if (d.date_start === d0DateStr) cmap[id].d0 = parsed;
+           else cmap[id].d1 = parsed;
+        });
+        return Object.values(cmap);
+     }
+  });
+
+  const generateAlerts = useMemo(() => {
+     if (!accInfo && !driftData) return [];
+     const alerts: any[] = [];
+     let idCounter = 1;
+
+     // 1. STATUS DE CONTA (Critico Master)
+     if (accInfo) {
+        const s = ACCOUNT_STATUS_MAP[accInfo.account_status] || { label: 'Status Desconhecido', color: 'text-warning', isCritical: true };
+        if (s.isCritical) {
+           alerts.push({
+             id: idCounter++, severity: 'critical', type: 'Conta Bloqueada ou Restrita',
+             message: `Esta conta de anúncios está desativada ou com pagamentos retidos. Status da Meta: ${s.label}.`,
+             action: { label: 'Ver Suporte Meta', url: 'https://business.facebook.com/business/help' },
+             icon: ShieldAlert, color: 'text-destructive', bg: 'bg-destructive/10'
+           });
         }
-     }))
-  });
-
-  // Mapa rápido local [accId] => Resultados Graph API da conta
-  const liveDataMap = queries.reduce((acc, query) => {
-     if (query.data && query.data.accId) {
-        acc[query.data.accId] = query.data;
+        
+        // 2. SALDO/PAGAMENTO
+        // 'balance' retornado pela Graph API muitas vezes é o valor devedor (Current Balance a pagar) ou negativo se o cliente tem créditos rodando em pré-pago sem faturar (nao tao confiavel para PIX mas para Threshold serve).
+        // Se `balance` for maior que 0 e próximo ao Limiar do Usuário.
+        const balance = Math.abs(Number(accInfo.balance || 0) / 100); // Meta retorna balance em centavos
+        if (balance >= configs.balanceThreshold) {
+           alerts.push({
+             id: idCounter++, severity: 'warning', type: `Aviso Tático Mensal / Faturamento (Tolerância R$ ${configs.balanceThreshold})`,
+             message: `O limite contábil de sua conta (${accInfo.currency || 'BRL'} ${formatCurrency(balance)}) está acionando o nosso gatilho tático configurado de R$ ${formatCurrency(configs.balanceThreshold)}. Pode ser um momento recomendado para faturar boleto/pix.`,
+             action: { label: 'Gerar Faturamento (1-Click na Meta Billing)', url: `https://business.facebook.com/ads/manager/billing_history/summary/?act=${accountId}` },
+             icon: DollarSign, color: 'text-warning', bg: 'bg-warning/10'
+           });
+        }
      }
-     return acc;
-  }, {} as Record<string, any>);
 
-  // Ações do Gerenciador
-  const handleToggleRule = (id: string) => {
-     saveRules(rules.map(r => r.id === id ? { ...r, active: !r.active } : r));
-  };
-  const handleDeleteRule = (id: string) => {
-     saveRules(rules.filter(r => r.id !== id));
-  };
-  const handleDuplicateRule = (rule: AlertRule) => {
-     const dup = { ...rule, id: crypto.randomUUID(), name: `${rule.name} (Cópia)` };
-     saveRules([...rules, dup]);
-  };
-  
-  const openNewModal = () => {
-     setEditingRuleId(null);
-     setFormName(''); setFormType('saldo'); setFormChannel('meta');
-     setFormAccountId(''); setFormAccountName('');
-     setFormMinBalance('0'); setFormTemplate(DEFAULT_MSG_TEMPLATE);
-     setIsModalOpen(true);
-  };
+     // 3. FADIGA ESTRATÉGICA E ANOMALIAS (Drifts de CPA/CPM/CTR)
+     if (driftData) {
+        driftData.forEach(camp => {
+           if (!camp.d0 || !camp.d1) return; // Precisa de 2 dias de histórico para base
+           const spend = camp.d0.spend + camp.d1.spend;
+           if (spend < 5) return; // Filtro de lixo (Campanha sem tração)
 
-  const openEditModal = (r: AlertRule) => {
-     setEditingRuleId(r.id);
-     setFormName(r.name); setFormType(r.type); setFormChannel(r.channel);
-     setFormAccountId(r.adAccountId); setFormAccountName(r.adAccountName);
-     setFormMinBalance(r.minBalance.toString()); setFormTemplate(r.messageTemplate || DEFAULT_MSG_TEMPLATE);
-     setIsModalOpen(true);
-  };
+           const cpaVar = camp.d1.cpa > 0 ? ((camp.d0.cpa - camp.d1.cpa) / camp.d1.cpa) * 100 : 0;
+           const cpmVar = camp.d1.cpm > 0 ? ((camp.d0.cpm - camp.d1.cpm) / camp.d1.cpm) * 100 : 0;
+           const ctrDrop = camp.d1.ctr > 0 ? ((camp.d1.ctr - camp.d0.ctr) / camp.d1.ctr) * 100 : 0; // Se d0 for menor, o drop é positivo
 
-  const handleSaveModal = () => {
-     if (!formName || !formAccountId) return alert("Preencha o Nome e escolha a Conta Anúncio.");
-     
-     const payload: AlertRule = {
-        id: editingRuleId || crypto.randomUUID(),
-        active: true,
-        name: formName,
-        type: formType,
-        channel: formChannel,
-        connectionId: 'default',
-        adAccountId: formAccountId,
-        adAccountName: formAccountName || accountsList.find(a => a.account_id === formAccountId)?.name || 'Conta Desconhecida',
-        minBalance: parseFloat(formMinBalance) || 0,
-        messageTemplate: formTemplate
-     };
-
-     if (editingRuleId) {
-        saveRules(rules.map(r => r.id === editingRuleId ? { ...r, ...payload } : r));
-     } else {
-        saveRules([...rules, payload]);
+           if (cpaVar > configs.cpaThresholdPct && camp.d0.results > 0) {
+              alerts.push({
+                 id: idCounter++, severity: 'warning', type: 'Sangria Orçamentária no C.P.A',
+                 message: `A campanha "${camp.name}" sofreu um aumento abruto de CPA hoje (+${cpaVar.toFixed(1)}%). Subiu de R$ ${camp.d1.cpa.toFixed(2)} para R$ ${camp.d0.cpa.toFixed(2)}.`,
+                 icon: AlertTriangle, color: 'text-warning', bg: 'bg-warning/10'
+              });
+           }
+           if (cpmVar > configs.cpmThresholdPct) {
+              alerts.push({
+                 id: idCounter++, severity: 'warning', type: 'Fadiga de Algoritmo / Oportunidade Piora (C.P.M)',
+                 message: `O piso do Custo Por Mil picos em "${camp.name}". Alta de +${cpmVar.toFixed(1)}% nas últimas 24 hrs. O público saturou o criativo, sugerimos injetar novos visuais amanhã cedinho.`,
+                 icon: Target, color: 'text-warning', bg: 'bg-warning/10'
+              });
+           }
+           if (ctrDrop > configs.ctrDropPct) {
+               alerts.push({
+                 id: idCounter++, severity: 'critical', type: 'Fuga em Massa da Audiência (CTR Oculto)',
+                 message: `Queda pesada (-${ctrDrop.toFixed(1)}%) na taxa de Click-Through Rate em "${camp.name}". Suas peças gráficas perderam o poder de "Stop Scroll".`,
+                 icon: Activity, color: 'text-destructive', bg: 'bg-destructive/10'
+              });
+           }
+        });
      }
-     setIsModalOpen(false);
-  };
 
-  // Preview da Mensagem (Live rendering)
-  const renderedMessage = formTemplate
-     .replace('<CA>', formAccountName || '[Nome da Conta]')
-     .replace('<SALDO>', `R$ XXX,XX`)
-     .replace('<TARGET>', `R$ ${formMinBalance}`);
+     return alerts.sort((a, b) => (SERVERITY_WEIGHT[b.severity as keyof typeof SERVERITY_WEIGHT] || 0) - (SERVERITY_WEIGHT[a.severity as keyof typeof SERVERITY_WEIGHT] || 0));
+  }, [accInfo, driftData, configs, accountId]);
+
+  const SERVERITY_WEIGHT = { critical: 2, warning: 1, positive: 0 };
+  const okStatus = accInfo && (accInfo.account_status === 1 || accInfo.account_status === 100);
 
   if (!hasMetaSetup) return (
-     <div className="flex flex-col items-center justify-center py-24 text-center">
-       <div className="rounded-full bg-secondary p-6 mb-4"><Server className="h-10 w-10 text-muted-foreground" /></div>
-       <h2 className="text-xl font-bold mb-2">Painel Desconectado</h2>
-       <p className="text-sm text-muted-foreground max-w-[400px]">É preciso conectar a Graph API do Facebook nas Configurações H.U.B antes de cadastrar Regras de Alertas.</p>
+     <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
+       <div className="rounded-full bg-secondary p-6 mb-4"><ShieldAlert className="h-10 w-10 text-muted-foreground" /></div>
+       <h2 className="text-xl font-bold mb-2">Vigília Offline</h2>
+       <p className="text-sm text-muted-foreground max-w-[400px]">Conecte a conta do Facebook Ads nas Configurações para ativar a patrulha e vigília automática dos alertas e bloqueios.</p>
      </div>
   );
 
   return (
-    <div className="p-0 sm:p-2 bg-[#121212] min-h-screen text-white rounded-lg">
+    <div className="max-w-[1200px] mx-auto p-4 sm:p-6 space-y-6">
        
-       {/* HEADER BAR TABLE */}
-       <div className="flex flex-col sm:flex-row items-center justify-between p-4 mb-2 gap-4 border-b border-white/5">
-          <div className="flex items-center gap-4 w-full sm:w-auto">
-             <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                <Input className="bg-[#1e1e1e] border-none text-xs pl-9 h-9 w-full rounded focus-visible:ring-1 focus-visible:ring-primary/50 text-white" placeholder="Filtrar busca" />
-             </div>
-             <span className="text-xs text-white/50 text-nowrap">{rules.length} registro(s).</span>
-          </div>
-
-          <div className="flex items-center gap-3 ml-auto shrink-0 w-full sm:w-auto overflow-x-auto">
-             <Button variant="ghost" size="icon" className="h-8 w-8 text-white/50 hover:bg-white/5"><Menu className="w-4 h-4" /></Button>
-             <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:bg-white/5 bg-white/5"><LayoutGrid className="w-4 h-4" /></Button>
-             
-             <div className="h-4 w-px bg-white/10 mx-1"></div>
-             
-             <Select defaultValue="todos"><SelectTrigger className="h-8 text-xs border-none bg-transparent hover:bg-white/5 w-[140px] focus:ring-0 text-white/80"><SelectValue placeholder="Todos os status" /></SelectTrigger><SelectContent className="bg-[#1e1e1e] border-white/10"><SelectItem value="todos">Todos os status</SelectItem></SelectContent></Select>
-             <Select defaultValue="todos"><SelectTrigger className="h-8 text-xs border-none bg-transparent hover:bg-white/5 w-[130px] focus:ring-0 text-white/80"><SelectValue placeholder="Todos os canais" /></SelectTrigger><SelectContent className="bg-[#1e1e1e] border-white/10"><SelectItem value="todos">Todos os canais</SelectItem></SelectContent></Select>
-             <Select defaultValue="todos"><SelectTrigger className="h-8 text-xs border-none bg-transparent hover:bg-white/5 w-[120px] focus:ring-0 text-white/80"><SelectValue placeholder="Todos os tipos" /></SelectTrigger><SelectContent className="bg-[#1e1e1e] border-white/10"><SelectItem value="todos">Todos os tipos</SelectItem></SelectContent></Select>
-             
-             <Button onClick={openNewModal} size="sm" className="ml-2 h-8 text-[11px] uppercase font-bold tracking-widest bg-primary hover:bg-primary/90 text-primary-foreground"><Plus className="w-3.5 h-3.5 mr-1" /> Criar Alerta</Button>
-          </div>
+       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+         <div>
+            <h1 className="text-[14px] font-black tracking-widest uppercase flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-primary" /> Centro de Operações Preventivo (C.O.P)</h1>
+            <p className="text-xs text-muted-foreground mt-1">Patrulhamento automático de limiares financeiros, bloqueios Meta e fadiga algoritmica 24hrs.</p>
+         </div>
+         <Button variant={showSettings ? "default" : "outline"} size="sm" onClick={() => setShowSettings(!showSettings)} className="shadow-sm font-bold uppercase tracking-widest text-[10px] gap-2"><SettingsIcon className="w-3.5 h-3.5" /> Ajustar Limiares C.O.P</Button>
        </div>
 
-       {/* INÍCIO DA TABELA TIPO SAAS */}
-       <div className="w-full overflow-x-auto pb-10">
-          <table className="w-full text-left border-collapse text-xs">
-             <thead>
-                <tr className="border-b border-white/5 text-white/70">
-                   <th className="pt-2 pb-4 px-6 font-semibold min-w-[150px]">Nome</th>
-                   <th className="pt-2 pb-4 px-6 font-semibold min-w-[200px]">Conta de anúncio</th>
-                   <th className="pt-2 pb-4 px-6 font-semibold min-w-[130px]">Saldo atual</th>
-                   <th className="pt-2 pb-4 px-6 font-semibold min-w-[150px]">Título do erro</th>
-                   <th className="pt-2 pb-4 px-6 font-semibold w-full">Descrição do erro</th>
-                   <th className="pt-2 pb-4 px-6 font-semibold text-right min-w-[120px]">Ações</th>
-                </tr>
-             </thead>
-             <tbody>
-                {rules.map(rule => {
-                   const live = liveDataMap[rule.adAccountId]?.data;
-                   
-                   // Determinar Saldo Real da Meta
-                   let actualBalance = 0;
-                   if (live) actualBalance = Math.abs(Number(live.balance || 0) / 100);
-                   
-                   const isUnderThreshold = rule.type === 'saldo' && actualBalance <= rule.minBalance && live; // O Alerta de Saldo "Mínimo" (na imagem) dispara se saldo MÍNIMO atinge (ex: Pré-Pago). Mas na Meta (Pós-pago), o saldo cresce até o threshold. Adotaremos logica da variavel se for Positivo. 
-                   const balanceColor = rule.type === 'saldo' && actualBalance < rule.minBalance ? "bg-destructive/20 text-destructive" : (live ? "bg-green-500/20 text-green-400" : "bg-white/5 text-white/50");
-
-                   // Determinar Erro Real da Meta
-                   const statusInfo = live ? ACCOUNT_STATUS_MAP[live.account_status] : null;
-                   const hasError = statusInfo && statusInfo.isError;
-                   const isErrorRule = rule.type === 'erro';
-
-                   return (
-                   <tr key={rule.id} className="border-b border-white[2%] hover:bg-white/[2%] transition-colors group">
-                      <td className="py-3 px-6">
-                         <div className="flex items-center gap-3">
-                            <button onClick={() => handleToggleRule(rule.id)} className="shrink-0 outline-none">
-                               {rule.active ? <ToggleActiveIcon /> : <ToggleInactiveIcon />}
-                            </button>
-                            <span className={rule.active ? 'text-white/90' : 'text-white/40'}>{rule.name}</span>
-                         </div>
-                      </td>
-                      <td className={`py-3 px-6 ${rule.active ? 'text-white/70' : 'text-white/40'}`}>{rule.adAccountName}</td>
-                      
-                      {/* Saldo Atual */}
-                      <td className="py-3 px-6">
-                         {rule.active && (rule.type === 'saldo' || actualBalance > 0) ? (
-                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${balanceColor}`}>
-                               R$ {formatCurrency(actualBalance)}
-                            </span>
-                         ) : null}
-                      </td>
-                      
-                      {/* Titulo do Erro */}
-                      <td className="py-3 px-6">
-                         {rule.active && hasError && isErrorRule ? (
-                            <span className="flex items-center gap-2 bg-destructive/10 text-destructive px-2 py-1 rounded w-fit">
-                               <XSquare className="w-4 h-4 fill-destructive/20" /> ALERTA DE FLUXO
-                            </span>
-                         ) : rule.active && !hasError && isErrorRule && live ? (
-                            <span className="bg-green-500/20 text-green-500 p-1 rounded inline-block">
-                               <CheckSquare className="w-4 h-4" />
-                            </span>
-                         ) : null}
-                      </td>
-                      
-                      {/* Descricao do erro */}
-                      <td className="py-3 px-6 text-white/50">
-                         {rule.active && hasError && isErrorRule ? statusInfo?.label : ''}
-                      </td>
-                      
-                      {/* Ações */}
-                      <td className="py-3 px-6 text-right">
-                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-white/10 text-white/50"><MetaIcon /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDuplicateRule(rule)} className="w-7 h-7 hover:bg-white/10 text-white/50"><Copy className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => openEditModal(rule)} className="w-7 h-7 hover:bg-white/10 text-white/50"><Edit2 className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)} className="w-7 h-7 hover:bg-destructive/20 text-white/50 hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></Button>
-                         </div>
-                      </td>
-                   </tr>
-                   );
-                })}
-
-                {rules.length === 0 && (
-                   <tr>
-                      <td colSpan={6} className="py-12 text-center text-white/30 text-sm border-none">
-                         <Bell className="w-8 h-8 opacity-20 mx-auto mb-3" />
-                         Nenhuma regra de alerta cadastrada.
-                      </td>
-                   </tr>
-                )}
-             </tbody>
-          </table>
-       </div>
-
-
-       {/* MODAL DE CRIAÇÃO (SPLIT SCREEN SAAS) */}
-       {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-             <div className="bg-[#18181A] border border-white/5 w-full max-w-[1100px] h-[85vh] sm:h-[700px] rounded-xl shadow-2xl overflow-hidden flex flex-col md:flex-row shadow-[0_0_50px_rgba(0,0,0,0.5)]">
-                
-                {/* LADO ESQUERDO (FORM) */}
-                <div className="flex-1 overflow-y-auto w-full border-r border-white/5 p-6 flex flex-col hide-scrollbar">
-                   <h2 className="text-lg font-bold mb-6 text-white leading-none tracking-tight">{editingRuleId ? 'Editar alerta' : 'Criar alerta'}</h2>
-                   
-                   <div className="space-y-6 flex-1 text-sm">
-                      {/* NOME */}
-                      <div className="space-y-2">
-                         <label className="text-white/80 font-medium">Nome <span className="text-destructive">*</span></label>
-                         <Input value={formName} onChange={e=>setFormName(e.target.value)} className="bg-[#1e1e1e] border-none text-white focus-visible:ring-1 h-11" placeholder="Alerta cliente" />
-                      </div>
-
-                      {/* TIPO */}
-                      <div className="space-y-2">
-                         <label className="text-white/80 font-medium">Tipo de alerta</label>
-                         <div className="flex items-center gap-3">
-                            <button onClick={()=>setFormType('saldo')} className={`px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium transition-colors border ${formType==='saldo'? 'bg-blue-600 text-white border-blue-600' : 'bg-[#1e1e1e] text-white/60 border-transparent hover:bg-white/5'}`}>
-                               <span className="text-lg font-serif italic font-bold">S</span> Saldo mínimo
-                            </button>
-                            <button onClick={()=>setFormType('erro')} className={`px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium transition-colors border ${formType==='erro'? 'bg-blue-600 text-white border-blue-600' : 'bg-[#1e1e1e] text-white/60 border-transparent hover:bg-white/5'}`}>
-                               <Bell className="w-4 h-4" /> Erro na conta
-                            </button>
-                         </div>
-                      </div>
-
-                      {/* CANAL */}
-                      <div className="space-y-2">
-                         <label className="text-white/80 font-medium">Canal: <span className="text-destructive">*</span></label>
-                         <div className="flex items-center gap-4">
-                            <button onClick={()=>setFormChannel('meta')} className={`flex-1 h-32 rounded-xl flex flex-col items-center justify-center gap-3 border transition-all ${formChannel==='meta'? 'bg-blue-600/10 border-blue-600' : 'bg-[#1e1e1e] border-transparent hover:bg-white/5'}`}>
-                               <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-serif italic text-xl font-bold">f</div>
-                               <span className="font-bold">Meta Ads</span>
-                               {formChannel === 'meta' ? <span className="text-blue-500 text-xs flex items-center gap-1"><CheckSquare className="w-3.5 h-3.5" /> Selecionado</span> : <span className="text-white/50 text-xs flex items-center gap-1"><Plus className="w-3 h-3"/> Selecionar</span>}
-                            </button>
-                            <button onClick={()=>setFormChannel('google')} className={`flex-1 h-32 rounded-xl flex flex-col items-center justify-center gap-3 border transition-all ${formChannel==='google'? 'bg-blue-600/10 border-blue-600' : 'bg-[#1e1e1e] border-transparent hover:bg-white/5'}`}>
-                               <GoogleIcon />
-                               <span className="font-bold">Google Ads</span>
-                               {formChannel === 'google' ? <span className="text-blue-500 text-xs flex items-center gap-1"><CheckSquare className="w-3.5 h-3.5" /> Selecionado</span> : <span className="text-white/50 text-xs flex items-center gap-1"><Plus className="w-3 h-3"/> Selecionar</span>}
-                            </button>
-                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                         {/* CONTA COM SELECT */}
-                         <div className="space-y-2">
-                            <label className="text-white/80 font-medium flex items-center gap-2">
-                               {formChannel === 'meta' ? <MetaIcon /> : <GoogleIcon />} Conta de anúncio <span className="text-destructive">*</span>
-                            </label>
-                            <Select value={formAccountId} onValueChange={(v) => {
-                               setFormAccountId(v);
-                               const acc = accountsList.find(a=>a.account_id === v);
-                               if(acc) setFormAccountName(acc.name);
-                            }}>
-                               <SelectTrigger className="bg-[#1e1e1e] border-none text-white/50 h-11 focus:ring-1 focus:ring-blue-500">
-                                  <SelectValue placeholder="Clique aqui para selecionar" />
-                               </SelectTrigger>
-                               <SelectContent className="bg-[#1e1e1e] border-white/10 max-h-56">
-                                  {accountsList.map(acc => (
-                                     <SelectItem key={acc.account_id} value={acc.account_id}>{acc.name} ({acc.account_id})</SelectItem>
-                                  ))}
-                                  {accountsList.length === 0 && <SelectItem value="disabled" disabled>Nenhuma conta (Conecte a Meta)</SelectItem>}
-                               </SelectContent>
-                            </Select>
-                         </div>
-
-                         {/* SALDO MÍNIMO */}
-                         {formType === 'saldo' && (
-                         <div className="space-y-2">
-                            <label className="text-white/80 font-medium">Saldo mínimo: <span className="text-destructive">*</span></label>
-                            <Input type="number" value={formMinBalance} onChange={e=>setFormMinBalance(e.target.value)} className="bg-[#1e1e1e] border-none text-white h-11" />
-                         </div>
-                         )}
-                      </div>
-
-                      {/* WATZAPP PLACEHOLDER */}
-                      <div className="space-y-2 pt-4 border-t border-white/5">
-                         <label className="text-white/80 font-medium">Conta de WhatsApp padrão <span className="text-destructive">*</span></label>
-                         <div className="flex items-center justify-between p-3 rounded-lg border border-blue-600 bg-[#0A1929] cursor-pointer">
-                            <div className="flex items-center gap-3">
-                               <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden relative">
-                                  <img src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="Profile" className="w-full h-full object-cover" />
-                                  <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-[#0A1929] rounded-full"></div>
-                               </div>
-                               <div>
-                                  <p className="font-bold text-white text-sm">558898071904</p>
-                                  <p className="text-xs text-white/50">AIB DIGITAL - WPP (Integrado)</p>
-                               </div>
-                            </div>
-                            <div className="w-5 h-5 rounded-full border-[6px] border-blue-500"></div>
-                         </div>
-                      </div>
-                   </div>
-
-                   <div className="mt-8 pt-6 border-t border-white/5 flex items-center gap-3">
-                      <Button onClick={()=>setIsModalOpen(false)} variant="ghost" className="text-white/60 hover:bg-white/5 flex-1 h-11">Cancelar</Button>
-                      <Button onClick={handleSaveModal} className="bg-blue-600 hover:bg-blue-700 text-white flex-1 h-11 font-bold">Salvar Alerta</Button>
-                   </div>
-                </div>
-
-                {/* LADO DIREITO (TEMPLATE) */}
-                <div className="hidden md:flex flex-col w-[380px] bg-[#121212] p-8 border-l border-white/5 relative">
-                   <h3 className="text-lg font-bold mb-6 text-white h-[28px]">Personalize sua mensagem</h3>
-                   
-                   <div className="bg-[#004d40] text-emerald-50 p-5 rounded-xl text-[13px] leading-relaxed relative min-h-[150px] whitespace-pre-wrap shadow-lg">
-                      <div className="absolute -left-2 top-4 w-4 h-4 bg-[#004d40] rotate-45 rounded-sm"></div>
-                      {renderedMessage}
-                   </div>
-
-                   <div className="mt-10 space-y-4">
-                      <h4 className="font-bold text-white mb-2">Lista de variáveis</h4>
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                         <span className="text-sm text-white/60">Conta de anúncio</span>
-                         <Badge variant="outline" className="font-mono text-[10px] bg-white text-black hover:bg-white">{'<CA>'}</Badge>
-                      </div>
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                         <span className="text-sm text-white/60">Saldo Atual (Lido)</span>
-                         <Badge variant="outline" className="font-mono text-[10px] bg-white text-black hover:bg-white">{'<SALDO>'}</Badge>
-                      </div>
-                      {formType === 'saldo' && (
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                         <span className="text-sm text-white/60">Saldo mínimo (Metrica)</span>
-                         <Badge variant="outline" className="font-mono text-[10px] bg-white text-black hover:bg-white">{'<TARGET>'}</Badge>
-                      </div>
-                      )}
-                      
-                      <Button variant="outline" className="w-fit mt-6 border-white/10 bg-transparent hover:bg-white/5 text-white/80 gap-2 h-9 text-xs">
-                         <SettingsIcon className="w-3.5 h-3.5" /> Configurações de Template Avançada
-                      </Button>
-                   </div>
-                   
-                   <Button onClick={()=>setIsModalOpen(false)} variant="ghost" className="absolute top-4 right-4 w-8 h-8 p-0 text-white/40 hover:bg-white/5 rounded-full"><XSquare className="w-5 h-5"/></Button>
-                </div>
-             </div>
-          </div>
+       {showSettings && (
+          <Card className="bg-secondary/10 border-border animate-in fade-in slide-in-from-top-4 relative overflow-hidden ring-1 ring-border/50">
+             <div className="absolute top-0 left-0 w-1 h-full bg-primary" />
+             <CardHeader className="pb-4">
+                <CardTitle className="text-xs uppercase font-black tracking-wider text-primary">Algoritmos Reguladores</CardTitle>
+                <CardDescription className="text-xs">Defina onde a sirene vermelha da AIB deve buzinar para você prever o caos.</CardDescription>
+             </CardHeader>
+             <CardContent>
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="p-4 bg-background rounded-lg border shadow-sm">
+                     <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-2">💰 Teto Mensal Fatura (Sempre Alertar em R$)</label>
+                     <Input type="number" value={configs.balanceThreshold} onChange={(e) => updateConfig('balanceThreshold', e.target.value)} className="font-mono" />
+                  </div>
+                  <div className="p-4 bg-background rounded-lg border shadow-sm border-warning/30">
+                     <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-2">🛡️ Alarme C.P.A (+%) [Hoje contra Ontem]</label>
+                     <Input type="number" value={configs.cpaThresholdPct} onChange={(e) => updateConfig('cpaThresholdPct', e.target.value)} className="font-mono text-warning" />
+                  </div>
+                  <div className="p-4 bg-background rounded-lg border shadow-sm border-warning/30">
+                     <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-2">⏱️ Teto de Leilão C.P.M (+%)</label>
+                     <Input type="number" value={configs.cpmThresholdPct} onChange={(e) => updateConfig('cpmThresholdPct', e.target.value)} className="font-mono text-warning" />
+                  </div>
+                  <div className="p-4 bg-background rounded-lg border shadow-sm border-destructive/30">
+                     <label className="text-[10px] uppercase font-bold text-muted-foreground block mb-2">🛑 Colapso Tático CTR Queda Pior Que (-%)</label>
+                     <Input type="number" value={configs.ctrDropPct} onChange={(e) => updateConfig('ctrDropPct', e.target.value)} className="font-mono text-destructive" />
+                  </div>
+               </div>
+             </CardContent>
+          </Card>
        )}
+
+       {/* STATUS BOARD HEALTH */}
+       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className={`border-border ${okStatus ? 'bg-success/5 border-success/20' : 'bg-destructive/5 border-destructive/30'}`}>
+             <CardContent className="p-5 flex items-center justify-between">
+                <div>
+                   <p className="text-[10px] uppercase font-black text-muted-foreground mb-1">Coração Central da Conta (Meta API)</p>
+                   {isAccLoading ? <div className="h-5 w-24 bg-secondary/50 animate-pulse rounded"></div> : (
+                      <h3 className={`text-sm font-black ${okStatus ? 'text-success' : 'text-destructive'}`}>
+                         {okStatus ? (ACCOUNT_STATUS_MAP[accInfo.account_status]?.label || 'Livre Operação') : (ACCOUNT_STATUS_MAP[accInfo?.account_status]?.label || 'Extremamente Crítico (Bloqueio ou Checagem Manual Pendente).')}
+                      </h3>
+                   )}
+                </div>
+                {okStatus ? <CheckCircle2 className="w-8 h-8 text-success opacity-80" /> : <ShieldAlert className="w-8 h-8 text-destructive animate-pulse" />}
+             </CardContent>
+          </Card>
+
+          <Card className="border-border">
+             <CardContent className="p-5 flex items-center justify-between">
+                <div>
+                   <p className="text-[10px] uppercase font-black text-muted-foreground mb-1">Última Leitura de Saldo / Threshold</p>
+                   {isAccLoading ? <div className="h-5 w-24 bg-secondary/50 animate-pulse rounded"></div> : (
+                      <h3 className="text-sm font-black font-mono">
+                         R$ {formatCurrency(Math.abs(Number(accInfo?.balance || 0) / 100))} <span className="text-[10px] uppercase text-muted-foreground font-sans">vs Limiar de {configs.balanceThreshold}</span>
+                      </h3>
+                   )}
+                </div>
+                <DollarSign className="w-8 h-8 text-primary opacity-50" />
+             </CardContent>
+          </Card>
+
+          <Card className="border-border bg-primary/5">
+             <CardContent className="p-5 flex items-center justify-between">
+                <div>
+                   <p className="text-[10px] uppercase font-black text-muted-foreground mb-1">Processos Diários</p>
+                   {isDriftLoading ? <div className="h-5 w-24 bg-secondary/50 animate-pulse rounded"></div> : (
+                      <h3 className="text-sm font-black">
+                         {driftData?.length || 0} Campanhas Monitoradas pelo COP
+                      </h3>
+                   )}
+                </div>
+                <Activity className="w-8 h-8 text-primary opacity-50" />
+             </CardContent>
+          </Card>
+       </div>
+
+       {/* ALERTS FEED LIST */}
+       <div>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-4 border-b border-border pb-2 flex items-center gap-2"><Target className="w-4 h-4" /> Relatório Oficial Tático {d0DateStr}</h2>
+          
+          {isAccLoading || isDriftLoading ? (
+             <div className="flex justify-center py-12">
+               <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+             </div>
+          ) : generateAlerts.length > 0 ? (
+             <div className="space-y-3">
+               {generateAlerts.map((alert) => {
+                  const Icon = alert.icon;
+                  return (
+                     <Card key={alert.id} className="border-none shadow-md overflow-hidden bg-card ring-1 ring-border group hover:ring-primary/50 transition-all hover:-translate-y-0.5 max-w-[900px]">
+                       <div className="flex flex-col sm:flex-row">
+                          <div className={`sm:w-[150px] shrink-0 flex flex-col items-center justify-center p-4 sm:border-r border-b sm:border-b-0 border-border/50 text-center ${alert.bg}`}>
+                             <Icon className={`w-8 h-8 mb-2 ${alert.color}`} />
+                             <Badge className={`${alert.bg} ${alert.color} border-none shadow-sm uppercase tracking-wider text-[9px] font-black`}>{alert.severity}</Badge>
+                          </div>
+                          <div className="p-5 flex-1 w-full min-w-0">
+                             <h4 className="text-xs uppercase font-black tracking-widest opacity-80 pb-2 mb-2 border-b border-border flex items-center gap-2 truncate">{alert.type} <span className="text-[9px] bg-secondary px-1.5 py-0.5 rounded text-muted-foreground animate-pulse ml-auto hidden sm:block">NOVO</span></h4>
+                             <p className="text-sm font-medium leading-relaxed opacity-90">{alert.message}</p>
+                             
+                             {alert.action && (
+                                <Button variant="outline" size="sm" className="mt-4 font-bold text-xs bg-background shadow hover:bg-secondary truncate w-full sm:w-auto" asChild>
+                                   <a href={alert.action.url} target="_blank" rel="noopener noreferrer">{alert.action.label} <ArrowRight className="w-3.5 h-3.5 ml-2" /></a>
+                                </Button>
+                             )}
+                          </div>
+                       </div>
+                     </Card>
+                  );
+               })}
+             </div>
+          ) : (
+             <Card className="border-border border-dashed bg-transparent shadow-none w-full max-w-[900px]">
+                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                   <CheckCircle2 className="w-12 h-12 text-success opacity-80 mb-4" />
+                   <h3 className="text-sm font-black uppercase text-foreground mb-1">100% BLINDADO; Sem Anomalias Severas Hoje.</h3>
+                   <p className="text-xs text-muted-foreground">O ambiente estocástico não superou seus limiares de alarme. Descanse os olhos.</p>
+                </CardContent>
+             </Card>
+          )}
+       </div>
+
     </div>
   );
 }

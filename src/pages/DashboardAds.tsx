@@ -1,288 +1,468 @@
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useFilters } from '@/contexts/FilterContext';
 import { useMetaContext } from '@/hooks/useMetaContext';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { differenceInDays, subDays } from 'date-fns';
+
+// UI Components
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DollarSign, Eye, MousePointer, Target, TrendingUp, BarChart3, AlertTriangle, Settings as SettingsIcon, CheckCircle2 } from 'lucide-react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+
+// Icons
+import {
+  TrendingUp, TrendingDown, Settings as SettingsIcon, AlertCircle, 
+  Lightbulb, ArrowRight, MessageCircle, Info, Target, MousePointer, Eye,
+  RefreshCw, BarChart, Trophy, Flame, AlertTriangle, ShieldCheck,
+  Filter as FilterIcon, Sparkles as SparklesIcon
+} from 'lucide-react';
+
 import { Link } from 'react-router-dom';
-import { insights_custom } from '@/services/metaApi';
+import { insights_custom, listar_campanhas } from '@/services/metaApi';
+
+// ==========================================
+// HELPERS E REGRAS DE NEGÓCIO (BENCHMARKS)
+// ==========================================
+const BENCHMARKS = {
+  ctr: 1.5,
+  cpc: 2.0,
+  conversao: 5 // 5% de conversão de lead global por ex.
+};
+
+function getPreviousPeriod(from: Date, to: Date) {
+  const diff = Math.max(differenceInDays(to, from), 0);
+  const prevTo = subDays(from, 1);
+  const prevFrom = subDays(prevTo, diff);
+  return {
+    from: prevFrom.toISOString().split('T')[0],
+    to: prevTo.toISOString().split('T')[0]
+  };
+}
+
+function calcVariation(current: number, prev: number) {
+  if (prev === 0) return current > 0 ? 100 : 0;
+  return ((current - prev) / prev) * 100;
+}
+
+// ==========================================
+// COMPONENTES UX MINIS
+// ==========================================
+
+function KpiCard({ title, value, varPct, invertGood = false }: any) {
+  const isUp = varPct >= 0;
+  const isGood = invertGood ? !isUp : isUp;
+  const color = isGood ? 'text-success' : 'text-destructive';
+  const Icon = isUp ? TrendingUp : TrendingDown;
+
+  return (
+    <Card className="bg-card border-border shadow-sm flex flex-col justify-between">
+      <CardContent className="p-4">
+        <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-2">{title}</p>
+        <div className="flex items-end justify-between">
+          <h3 className="text-2xl font-bold text-foreground">{value}</h3>
+          {(varPct !== 0 && varPct !== Infinity && !isNaN(varPct)) && (
+            <div className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${isGood ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
+               <Icon className="h-3 w-3" />
+               {Math.abs(varPct).toFixed(1)}%
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InsightItem({ type, title, message, action }: any) {
+  const colors = {
+    critical: 'border-l-destructive bg-destructive/5 text-destructive-foreground',
+    attention: 'border-l-warning bg-warning/5 text-warning',
+    opportunity: 'border-l-primary bg-primary/5 text-primary'
+  };
+  const icons = {
+    critical: <AlertTriangle className="h-5 w-5 text-destructive mr-2 flex-shrink-0" />,
+    attention: <AlertCircle className="h-5 w-5 text-warning mr-2 flex-shrink-0" />,
+    opportunity: <Lightbulb className="h-5 w-5 text-primary mr-2 flex-shrink-0" />
+  };
+
+  return (
+    <div className={`border-l-4 rounded-r-lg p-4 flex items-start ${colors[type as keyof typeof colors]}`}>
+      {icons[type as keyof typeof icons]}
+      <div className="flex-1">
+        <h4 className="text-sm font-bold opacity-90">{title}</h4>
+        <p className="text-xs opacity-80 mt-1 mb-2 leading-relaxed">{message}</p>
+        <span className="text-[11px] font-semibold bg-background/50 px-2 py-1 rounded inline-block">🎯 Ação: {action}</span>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// PÁGINA PRINCIPAL
+// ==========================================
 
 export default function DashboardPage() {
   const { dateRange } = useFilters();
-  const { token, accountId, hasMetaSetup, isLoading: isMetaLoading } = useMetaContext();
+  const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading } = useMetaContext();
 
-  const fromStr = dateRange.from.toISOString().split('T')[0];
-  const toStr = dateRange.to.toISOString().split('T')[0];
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
 
-  const timeRangeJSON = JSON.stringify({ since: fromStr, until: toStr });
+  const currFromStr = dateRange.from.toISOString().split('T')[0];
+  const currToStr = dateRange.to.toISOString().split('T')[0];
+  const currTimeRangeJSON = JSON.stringify({ since: currFromStr, until: currToStr });
 
-  // Métricas agregadas reais da Meta API
-  const { data: metrics, isLoading: isMetricsLoading } = useQuery({
-    queryKey: ['meta-dashboard-metrics', accountId, fromStr, toStr],
+  const prevDates = getPreviousPeriod(dateRange.from, dateRange.to);
+  const prevTimeRangeJSON = JSON.stringify({ since: prevDates.from, until: prevDates.to });
+
+  // 1. LISTA DE CAMPANHAS PARA SELETOR STICKY
+  const { data: campaignList } = useQuery({
+    queryKey: ['meta-campaigns-list', accountId],
     enabled: hasMetaSetup,
     queryFn: async () => {
-      // Pedimos clicks, impressões, gasto, e todas as conversões padrão
-      const res = await insights_custom(token, accountId, { 
-        level: 'account', 
-        fields: 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas', 
-        time_range: timeRangeJSON 
-      });
+      const res = await listar_campanhas(token, accountId, 100);
+      return (res as any).data || res || [];
+    }
+  });
+
+  // 2. BUSCADOR CORE DE MÉTRICAS (ATUAL)
+  const queryParams = selectedCampaignId === 'all' ? 
+    { level: 'account', fields: 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas', time_range: currTimeRangeJSON } 
+    : 
+    { level: 'campaign', campaign_id: selectedCampaignId, fields: 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas', time_range: currTimeRangeJSON };
+
+  const { data: currMetrics, isLoading: isMetricsLoading, refetch } = useQuery({
+    queryKey: ['meta-dash-curr', accountId, selectedCampaignId, currFromStr, currToStr],
+    enabled: hasMetaSetup,
+    queryFn: async () => {
+      const res = await insights_custom(token, accountId, queryParams as any);
       const data = (res as any).data || res;
       if (!data || data.length === 0) return null;
-      
-      const m = data[0]; // row único pois é agregação da conta inteira
-      
-      // Meta retorna ações em um Array. Tentamos achar uma conversão ou click link
-      const resultsVal = m.actions?.find((a: any) => a.action_type === 'offsite_conversion.fb_pixel_purchase' || a.action_type === 'link_click')?.value || m.clicks || 0;
-      const roasVal = m.purchase_roas?.[0]?.value || 0;
+      return parseMetricsObject(data[0]);
+    }
+  });
+
+  // 3. BUSCADOR DE MÉTRICAS (ANTERIOR)
+  const prevQueryParams = { ...queryParams, time_range: prevTimeRangeJSON };
+  const { data: prevMetrics } = useQuery({
+    queryKey: ['meta-dash-prev', accountId, selectedCampaignId, prevDates.from, prevDates.to],
+    enabled: hasMetaSetup,
+    queryFn: async () => {
+      const res = await insights_custom(token, accountId, prevQueryParams as any);
+      const data = (res as any).data || res;
+      if (!data || data.length === 0) return null;
+      return parseMetricsObject(data[0]);
+    }
+  });
+
+  // 4. RANKING DE CRIATIVOS (Top 3 Melhores vs Piores por Custo de Resultado)
+  const rankingParams = selectedCampaignId === 'all' ? 
+    { level: 'ad', fields: 'ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 } 
+    : 
+    { level: 'ad', campaign_id: selectedCampaignId, fields: 'ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 100 };
+
+  const { data: creativeRanking } = useQuery({
+    queryKey: ['meta-dash-creatives', accountId, selectedCampaignId, currFromStr, currToStr],
+    enabled: hasMetaSetup,
+    queryFn: async () => {
+      const res = await insights_custom(token, accountId, rankingParams as any);
+      const data = (res as any).data || res || [];
+      const parsed = data.map((d: any) => {
+         const m = parseMetricsObject(d);
+         return { ...m, ad_name: d.ad_name };
+      }).filter((m: any) => m.spend > 0); // só quem gastou dinheiro
+
+      // Ordenar do menor custo/resultado (melhor) para o maior
+      // Se não tem resultado, o CPA é o próprio spend (tecnicamente infinito, jogamos no final)
+      const sorted = parsed.sort((a: any, b: any) => {
+         const cpaA = a.results > 0 ? a.spend / a.results : 9999 + a.spend;
+         const cpaB = b.results > 0 ? b.spend / b.results : 9999 + b.spend;
+         return cpaA - cpaB;
+      });
+
+      const avgCpa = sorted.length ? sorted.reduce((sum: number, c: any) => sum + (c.results>0 ? c.spend/c.results : 0), 0) / sorted.filter((c:any)=>c.results>0).length : 0;
 
       return {
-        spend: Number(m.spend || 0),
-        impressions: Number(m.impressions || 0),
-        clicks: Number(m.clicks || 0),
-        results: Number(resultsVal),
-        roas: Number(roasVal),
-        cpc: Number(m.cpc || 0),
-        cpm: Number(m.cpm || 0),
-        ctr: Number(m.ctr || 0)
+        best: sorted.slice(0, 3), // top 3
+        worst: sorted.slice(-3).reverse(), // piores 3
+        medianCpa: isNaN(avgCpa) ? 0 : avgCpa
       };
-    },
+    }
   });
 
-  // Gráfico de investimento diário da Meta API
-  const { data: chartData } = useQuery({
-    queryKey: ['meta-spend-chart', accountId, fromStr, toStr],
-    enabled: hasMetaSetup,
-    queryFn: async () => {
-      const res = await insights_custom(token, accountId, { 
-        level: 'account', 
-        time_increment: 1, 
-        time_range: timeRangeJSON 
-      });
-      const data = (res as any).data || res;
-      if (!data) return [];
-      
-      return data.map((d: any) => ({
-        date: d.date_start,
-        spend: Number(d.spend || 0)
-      }));
-    },
-  });
+  // ==========================================
+  // PARSERS E PROCESSADORES
+  // ==========================================
+  function parseMetricsObject(m: any) {
+    const isWpp = m.actions?.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+    const isLead = m.actions?.find((a: any) => a.action_type === 'lead');
+    const isPurch = m.actions?.find((a: any) => a.action_type === 'offsite_conversion.fb_pixel_purchase');
+    
+    // Auto-detect funnel bottom
+    const resultAction = isPurch || isLead || isWpp || null;
+    let resultType = 'clique';
+    if (isPurch) resultType = 'compra';
+    else if (isLead) resultType = 'lead';
+    else if (isWpp) resultType = 'conversa';
 
-  // Top campanhas (Ordenadas pelo Facebook, geralmente por gasto/performance nativa se não mexermos)
-  const { data: topCampaigns } = useQuery({
-    queryKey: ['meta-top-campaigns', accountId, fromStr, toStr],
-    enabled: hasMetaSetup,
-    queryFn: async () => {
-      const res = await insights_custom(token, accountId, { 
-        level: 'campaign', 
-        fields: 'campaign_id,campaign_name,objective,spend', 
-        time_range: timeRangeJSON 
-      });
-      const data = (res as any).data || res;
-      if (!data) return [];
-      
-      // Ordenando por Spend
-      const sorted = data.sort((a: any, b: any) => Number(b.spend || 0) - Number(a.spend || 0));
+    const results = Number(resultAction?.value || m.clicks || 0);
 
-      return sorted.slice(0, 5).map((d: any) => ({
-        id: d.campaign_id,
-        name: d.campaign_name,
-        objective: d.objective || '—',
-        status: 'live', // insights não trazem effective_status por padrão a menos que configurado, mockamos 'live' para as top atuantes.
-        spend: Number(d.spend || 0)
-      }));
-    },
-  });
-
-  // Alertas dinâmicos (por hora mockados do BD para mostrar UI, futuramente Meta)
-  const { data: alerts } = useQuery({
-    queryKey: ['active-alerts'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('alerts')
-        .select('*')
-        .is('resolved_at', null)
-        .order('created_at', { ascending: false })
-        .limit(5);
-      return data || [];
-    },
-  });
-
-  const cards = [
-    { label: 'Investimento Meta', value: formatCurrency(metrics?.spend || 0), icon: DollarSign },
-    { label: 'Impressões Livres', value: formatNumber(metrics?.impressions || 0), icon: Eye },
-    { label: 'Cliques (All)', value: formatNumber(metrics?.clicks || 0), icon: MousePointer },
-    { label: 'CTR Real', value: formatPercent(metrics?.ctr || 0), icon: Target },
-    { label: 'CPC', value: formatCurrency(metrics?.cpc || 0), icon: BarChart3 },
-    { label: 'CPM', value: formatCurrency(metrics?.cpm || 0), icon: BarChart3 },
-    { label: 'Resultados (Clicks/Purch)', value: formatNumber(metrics?.results || 0), icon: TrendingUp },
-    { label: 'ROAS Global', value: (metrics?.roas || 0).toFixed(2) + 'x', icon: TrendingUp },
-  ];
-
-  const severityColor: Record<string, string> = {
-    critical: 'bg-destructive text-destructive-foreground',
-    warning: 'bg-warning/20 text-warning',
-    positive: 'bg-success/20 text-success',
-  };
-
-  if (isMetaLoading) {
-    return <div className="p-12 text-center text-muted-foreground">Carregando permissões do Meta...</div>;
+    return {
+       spend: Number(m.spend || 0),
+       impressions: Number(m.impressions || 0),
+       clicks: Number(m.clicks || 0),
+       ctr: Number(m.ctr || 0),
+       cpc: Number(m.cpc || 0),
+       cpm: Number(m.cpm || 0),
+       results,
+       resultType,
+       roas: Number(m.purchase_roas?.[0]?.value || 0),
+       cpa: results > 0 ? Number(m.spend || 0) / results : 0
+    };
   }
 
-  if (!hasMetaSetup) {
-    return (
-      <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
-        <div className="rounded-full bg-secondary p-6 mb-4">
-          <SettingsIcon className="h-10 w-10 text-muted-foreground" />
-        </div>
-        <h2 className="text-xl font-bold mb-2 text-foreground">Configuração Incompleta</h2>
-        <p className="text-muted-foreground max-w-md mb-6">
-          Para ver os insights ao vivo do Facebook, precisamos que você vincule seu Access Token e selecione a conta principal nas configurações.
-        </p>
-        <Link to="/settings">
-          <Button>Configurar Agora</Button>
-        </Link>
-      </div>
-    );
-  }
+  // Montagem Lógica do Funil Horizontal
+  const m = currMetrics || { spend:0, impressions:0, clicks:0, results:0, cpa:0, ctr:0, cpc:0, cpm:0, resultType:'evento' };
+  const p = prevMetrics || { spend:0, impressions:0, clicks:0, results:0, cpa:0, ctr:0, cpc:0, cpm:0 };
+  
+  const conversionRate = m.clicks > 0 ? (m.results / m.clicks) * 100 : 0;
+
+  // Montagem Lógica dos Insights Automáticos
+  const autoInsights = useMemo(() => {
+    if (!currMetrics) return [];
+    const _in = [];
+    if (currMetrics.ctr > 0 && currMetrics.ctr < BENCHMARKS.ctr) {
+      _in.push({ type: 'critical', title: 'CTR abaixo de 1.5%', message: `O seu click-through rate de ${currMetrics.ctr.toFixed(2)}% indica que o criativo não está parando o dedo da audiência.`, action: 'Testar novo criativo com gancho (hook) mais forte nos 3 primeiros segundos.' });
+    } else if (currMetrics.ctr >= BENCHMARKS.ctr + 1) {
+      _in.push({ type: 'opportunity', title: 'Criativo Campeão (Alto CTR)', message: `Com um CTR fantástico de ${currMetrics.ctr.toFixed(2)}%, o tráfego está barato e engajado.`, action: 'Aumente o orçamento destas peças ou clone a campanha para escalar.' });
+    }
+
+    if (currMetrics.cpc > BENCHMARKS.cpc) {
+      _in.push({ type: 'attention', title: 'Custo por Clique Salgado', message: `Você está pagando ${formatCurrency(currMetrics.cpc)} por cada clique. O público pode estar saturado ou mal segmentado.`, action: 'Atualize os interesses ou troque a segmentação PMax/Advantage.' });
+    }
+    
+    if (currMetrics.results > 0 && currMetrics.cpa < (prevMetrics?.cpa || 9999)) {
+       _in.push({ type: 'opportunity', title: 'Custo de Conversão em Queda!', message: `O CPA caiu para ${formatCurrency(currMetrics.cpa)}. Excelente tração.`, action: 'Momento seguro para escalar orçamento horizontal diário (+20%).' });
+    }
+
+    if (_in.length === 0) {
+      _in.push({ type: 'opportunity', title: 'Operação Estável', message: 'Nenhuma anomalia detectada nos KPIs base deste escopo.', action: 'Deixe o algoritmo trabalhar (Fase de Aprendizado).' });
+    }
+    return _in;
+  }, [currMetrics, prevMetrics]);
+
+  // ==========================================
+  // RENDERIZAÇÃO
+  // ==========================================
+
+  if (isMetaSetupLoading) return <div className="p-20 text-center"><BarChart className="animate-spin w-8 h-8 text-primary mx-auto" /></div>;
+  if (!hasMetaSetup) return (
+     <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
+       <div className="rounded-full bg-secondary p-6 mb-4"><SettingsIcon className="h-10 w-10 text-muted-foreground" /></div>
+       <h2 className="text-xl font-bold mb-2 text-foreground">Acesso ao Painel Consultivo</h2>
+       <p className="text-muted-foreground max-w-md mb-6">Injetar a Camada de Inteligência exige acesso à sua conta de anúncios.</p>
+       <Link to="/settings"><Button>Vincular Meta Ads Agora</Button></Link>
+     </div>
+  );
 
   return (
-    <div className="space-y-6 p-6 pb-20">
-      <div className="flex items-center justify-between">
-         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-         <div className="flex items-center gap-2">
-            <span className="flex h-2 w-2 rounded-full bg-success"></span>
-            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Live Meta Data</span>
-         </div>
-      </div>
-
-      {/* Metric cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {cards.map((c) => (
-          <Card key={c.label} className="bg-card border-border shadow-sm">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <c.icon className="h-4 w-4" />
-                <span className="text-[11px] uppercase tracking-wider font-semibold">{c.label}</span>
-              </div>
-              <p className="text-2xl font-bold text-foreground">
-                {isMetricsLoading ? '...' : c.value}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Chart + Alerts */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="bg-card border-border lg:col-span-2 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Investimento por dia (Graph API)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px]">
-              {chartData && chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis 
-                       dataKey="date" 
-                       tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
-                       tickFormatter={(str) => {
-                          const [y, m, d] = str.split('-');
-                          return `${d}/${m}`;
-                       }}
-                       axisLine={false}
-                       tickLine={false}
-                    />
-                    <YAxis 
-                       tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
-                       axisLine={false}
-                       tickLine={false}
-                       tickFormatter={(val) => `R$${val}`}
-                    />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8 }}
-                      labelStyle={{ color: 'hsl(var(--foreground))' }}
-                    />
-                    <Area type="monotone" dataKey="spend" stroke="hsl(var(--primary))" fill="url(#spendGrad)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  Nenhum dado trafegado no período
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" /> Alertas Ativos
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-2">
-            {alerts && alerts.length > 0 ? alerts.map((a: any) => (
-              <div key={a.id} className="flex flex-col gap-1 rounded-lg bg-secondary/50 border border-border p-3">
-                <div className="flex justify-between items-start">
-                  <Badge className={severityColor[a.severity] || 'bg-secondary'} variant="secondary">
-                    {a.severity}
-                  </Badge>
-                </div>
-                <span className="text-xs text-foreground mt-1 leading-relaxed">{a.message}</span>
-              </div>
-            )) : (
-              <div className="py-10 text-center flex flex-col items-center">
-                 <div className="h-8 w-8 rounded-full bg-success/10 flex items-center justify-center mb-2">
-                    <CheckCircle2 className="h-4 w-4 text-success" />
-                 </div>
-                 <p className="text-sm text-muted-foreground font-medium">Tudo tranquilo!</p>
-                 <p className="text-xs text-muted-foreground">Nenhum alerta crítico encontrado.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Top campanhas */}
-      <Card className="bg-card border-border shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Top Campanhas Mais Investidas (Via Graph API)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {topCampaigns && topCampaigns.length > 0 ? (
-            <div className="space-y-2">
-              {topCampaigns.map((c: any) => (
-                <div
-                  key={c.id}
-                  className="flex items-center justify-between rounded-lg bg-secondary/30 border border-transparent hover:border-border p-3 transition-colors"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{c.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Gasto: {formatCurrency(c.spend)}</p>
-                  </div>
-                  <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/20">{c.status}</Badge>
-                </div>
+    <div className="bg-background min-h-screen">
+      
+      {/* 1. HEADER FIXO (STICKY) PIXEL PERFECT */}
+      <div className="sticky top-0 z-10 w-full border-b border-border bg-background/90 backdrop-blur-md px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-lg">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-foreground tracking-tight">Consultor de Tráfego</h1>
+            <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+               <span className="w-2 h-2 rounded-full bg-success"></span> Operando em tempo real
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
+            <SelectTrigger className="w-[200px] h-9 bg-secondary text-xs font-semibold">
+              <SelectValue placeholder="Selecione a fonte..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">📊 Todas as Campanhas</SelectItem>
+              {campaignList?.map((c: any) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" className="h-9 gap-2 text-xs" onClick={() => refetch()} disabled={isMetricsLoading}>
+            <RefreshCw className={`w-3 h-3 ${isMetricsLoading ? 'animate-spin' : ''}`} /> Atualizar
+          </Button>
+          <Link to="/insights"><Button size="sm" className="h-9 text-xs gap-1"><Lightbulb className="w-3 h-3"/> Insights Completos</Button></Link>
+        </div>
+      </div>
+
+      <div className="p-6 max-w-7xl mx-auto space-y-8 pb-24">
+        
+        {/* =========================================
+            2. OS KPIS DE SUPERFÍCIE (HORIZONTAL CARDS) 
+            ========================================= */}
+        <div>
+          <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest mb-4 flex items-center gap-2">
+            Radar de Performance <Badge variant="secondary" className="text-[10px] uppercase font-mono bg-secondary/80">{currFromStr} até {currToStr}</Badge>
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+             <KpiCard title="Investimento" value={formatCurrency(m.spend)} varPct={calcVariation(m.spend, p.spend)} invertGood={true} />
+             <KpiCard title={`Atrações (${m.resultType})`} value={formatNumber(m.results)} varPct={calcVariation(m.results, p.results)} />
+             <KpiCard title={`CPA (Custo por ${m.resultType})`} value={formatCurrency(m.cpa)} varPct={calcVariation(m.cpa, p.cpa)} invertGood={true} />
+             <KpiCard title="CTR Geral" value={formatPercent(m.ctr)} varPct={calcVariation(m.ctr, p.ctr)} />
+             <KpiCard title="CPM" value={formatCurrency(m.cpm)} varPct={calcVariation(m.cpm, p.cpm)} invertGood={true} />
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-4 gap-6">
+
+          {/* =========================================
+              3. O FUNIL DINÂMICO CENTRAL (ESQUERDA 3 COLs)
+              ========================================= */}
+          <div className="lg:col-span-3 space-y-4">
+            <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest flex items-center gap-2">
+              <FilterIcon className="w-4 h-4" /> Trajetória do Usuário (Funil)
+            </h2>
+            <Card className="bg-card border-none ring-1 ring-border/50 shadow-md">
+              <CardContent className="p-6 overflow-x-auto">
+                 <div className="flex items-center min-w-[700px] justify-between gap-2 relative">
+                    {/* Linha conectora no fundo */}
+                    <div className="absolute top-1/2 left-0 right-0 h-1 bg-secondary -translate-y-1/2 rounded-full hidden md:block z-0"></div>
+
+                    {/* BLOCO 1: ALCANCE / IMPRESSÃO */}
+                    <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-sm relative group hover:border-primary/50 transition-colors">
+                       <span className="text-xs font-bold uppercase text-muted-foreground mb-1"><Eye className="w-3 h-3 inline mr-1"/> Descoberta</span>
+                       <span className="text-3xl font-black text-foreground mb-2">{formatNumber(m.impressions)}</span>
+                       <span className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded-md font-mono">Impressões</span>
+                    </div>
+
+                    {/* Seta Com Taxa 1 */}
+                    <div className="flex flex-col items-center z-10 px-2">
+                       <span className={`text-xs font-bold px-2 py-1 rounded-full text-white mb-1 shadow-sm ${m.ctr >= BENCHMARKS.ctr ? 'bg-success' : 'bg-warning text-warning-foreground'}`}>
+                          {m.ctr.toFixed(2)}% CTR
+                       </span>
+                       <ArrowRight className="w-5 h-5 text-muted-foreground" />
+                    </div>
+
+                    {/* BLOCO 2: CLIQUE / INTENÇÃO */}
+                    <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-sm relative group hover:border-primary/50 transition-colors">
+                       <span className="text-xs font-bold uppercase text-muted-foreground mb-1"><MousePointer className="w-3 h-3 inline mr-1"/> Engajamento</span>
+                       <span className="text-3xl font-black text-foreground mb-2">{formatNumber(m.clicks)}</span>
+                       <span className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded-md font-mono">Cliques de Link</span>
+                       <span className="text-[10px] text-muted-foreground mt-2 font-mono">Custo: {formatCurrency(m.cpc)}/clique</span>
+                    </div>
+
+                    {/* Seta Com Taxa 2 */}
+                    <div className="flex flex-col items-center z-10 px-2">
+                       <span className={`text-xs font-bold px-2 py-1 rounded-full text-white mb-1 shadow-sm ${conversionRate >= BENCHMARKS.conversao ? 'bg-success' : 'bg-primary'}`}>
+                          {conversionRate.toFixed(2)}% CV
+                       </span>
+                       <ArrowRight className="w-5 h-5 text-muted-foreground" />
+                    </div>
+
+                    {/* BLOCO 3: CONVERSÃO FINAL */}
+                    <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-sm relative group ring-2 ring-primary/20">
+                       <span className="text-xs font-bold uppercase text-primary mb-1"><Target className="w-3 h-3 inline mr-1"/> Conversão</span>
+                       <span className="text-3xl font-black text-foreground mb-2">{formatNumber(m.results)}</span>
+                       <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-md font-mono uppercase font-bold">{m.resultType}s</span>
+                       <span className="text-[10px] text-muted-foreground mt-2 font-mono">Custo: {formatCurrency(m.cpa)}/{m.resultType}</span>
+                    </div>
+                 </div>
+              </CardContent>
+            </Card>
+
+            {/* =========================================
+                5. TELA DE CRIATIVOS / RANKING INFERIOR
+                ========================================= */}
+            <div className="pt-6">
+              <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest flex items-center gap-2 mb-4">
+                <Flame className="w-4 h-4 text-orange-500" /> Batalha de Criativos (Performance Absoluta pelo CPA)
+              </h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* OS MELHORES */}
+                <Card className="bg-card border-success/30 shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Trophy className="w-24 h-24" /></div>
+                  <CardContent className="p-5 relative z-10">
+                    <h3 className="text-xs font-bold uppercase text-success mb-3 flex items-center gap-1"><ArrowRight className="w-3 h-3 rotate-45" /> Promessas Escalonáveis (Melhores)</h3>
+                    <div className="space-y-3">
+                      {creativeRanking?.best?.length ? creativeRanking.best.map((ad:any, i:number) => (
+                        <div key={i} className="flex flex-col gap-1 p-3 rounded-lg bg-success/5 border border-success/10">
+                          <p className="text-xs font-bold truncate" title={ad.ad_name}>{ad.ad_name}</p>
+                          <div className="flex justify-between items-center mt-1">
+                             <span className="text-[10px] text-muted-foreground font-mono">CPA: {formatCurrency(ad.results>0 ? ad.spend/ad.results : ad.spend)}</span>
+                             <span className="text-[10px] font-bold bg-success text-success-foreground px-1.5 py-0.5 rounded">{ad.results} resultados</span>
+                          </div>
+                        </div>
+                      )) : <p className="text-xs text-muted-foreground">Poucos dados.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* OS PIORES */}
+                <Card className="bg-card border-destructive/30 shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><AlertTriangle className="w-24 h-24" /></div>
+                  <CardContent className="p-5 relative z-10">
+                    <h3 className="text-xs font-bold uppercase text-destructive mb-3 flex items-center gap-1"><ArrowRight className="w-3 h-3 -rotate-45" /> Sangria no Orçamento (Piores)</h3>
+                    <div className="space-y-3">
+                      {creativeRanking?.worst?.length ? creativeRanking.worst.map((ad:any, i:number) => (
+                        <div key={i} className="flex flex-col gap-1 p-3 rounded-lg bg-destructive/5 border border-destructive/10">
+                           <p className="text-xs font-bold truncate" title={ad.ad_name}>{ad.ad_name}</p>
+                           <div className="flex justify-between items-center mt-1">
+                              <span className="text-[10px] text-muted-foreground font-mono">Gasto Lixo: {formatCurrency(ad.spend)}</span>
+                              <span className="text-[10px] font-bold bg-destructive text-destructive-foreground px-1.5 py-0.5 rounded">{ad.results} resultados</span>
+                           </div>
+                        </div>
+                      )) : <p className="text-xs text-muted-foreground">Poucos dados.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Nenhuma campanha encontrada trafegando grana no período.</p>
-          )}
-        </CardContent>
-      </Card>
+
+          </div>
+
+          {/* =========================================
+              4. A CAMADA DE INTELIGÊNCIA DIREITA (1 COL)
+              ========================================= */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest flex items-center gap-2">
+              <Lightbulb className="w-4 h-4 text-warning" /> Auto-Insights Express
+            </h2>
+            <Card className="bg-card border-none ring-1 ring-border/50 shadow-md h-full">
+              <CardContent className="p-0">
+                 <div className="p-4 bg-secondary/30 border-b border-border text-xs text-muted-foreground leading-relaxed">
+                   <strong>Aqui está o que está acontecendo:</strong> O algoritmo de regras varreu seu funil em {new Date().toLocaleTimeString('pt-BR')}.
+                 </div>
+                 <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto">
+                   {autoInsights.map((insight, idx) => (
+                      <InsightItem 
+                         key={idx} 
+                         type={insight.type} 
+                         title={insight.title} 
+                         message={insight.message} 
+                         action={insight.action} 
+                      />
+                   ))}
+                 </div>
+                 <div className="p-4 border-t border-border">
+                   <Link to="/insights">
+                      <Button variant="outline" className="w-full text-xs font-semibold h-8 rounded shrink shadow-sm flex items-center gap-2">
+                         <SparklesIcon className="w-3 h-3 text-primary" /> Análise Profunda com Claude
+                      </Button>
+                   </Link>
+                 </div>
+              </CardContent>
+            </Card>
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 }

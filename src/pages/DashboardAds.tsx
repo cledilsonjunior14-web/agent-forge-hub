@@ -10,28 +10,56 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 // Icons
 import {
   TrendingUp, TrendingDown, Settings as SettingsIcon, AlertCircle, 
-  Lightbulb, ArrowRight, MessageCircle, Info, Target, MousePointer, Eye,
+  Lightbulb, ArrowRight, Target, MousePointer, Eye,
   RefreshCw, BarChart, Trophy, Flame, AlertTriangle, ShieldCheck,
-  Filter as FilterIcon, Sparkles as SparklesIcon
+  Filter as FilterIcon, Sparkles as SparklesIcon, ImageIcon
 } from 'lucide-react';
 
 import { Link } from 'react-router-dom';
-import { insights_custom, listar_campanhas } from '@/services/metaApi';
+import { insights_custom, listar_campanhas, obter_criativo_do_anuncio } from '@/services/metaApi';
 
 // ==========================================
-// HELPERS E REGRAS DE NEGÓCIO (BENCHMARKS)
+// CONFIGURAÇÕES E TEXTOS PERSONALIZÁVEIS
 // ==========================================
+const STRINGS = {
+  headerTitle: "Consultor de Tráfego",
+  headerSubtitle: "Operando em tempo real",
+  btnUpdate: "Atualizar",
+  btnInsights: "Insights IA Completos",
+  titleKpis: "Radar de Performance",
+  titleFunnel: "Trajetória do Usuário (Funil)",
+  titleCreatives: "Batalha de Criativos",
+  titleInsights: "Auto-Insights Express",
+  txtBestAds: "Promessas Escalonáveis (Melhores)",
+  txtWorstAds: "Sangria no Orçamento (Piores)",
+  txtEmptyData: "Não há tráfego rodando neste período exato para popular todo o funil.",
+  
+  // Base Padrão de Insights Dinâmicos
+  isCritCtrLow: "O criativo não está parando o dedo da audiência.",
+  isCritCtrLowAction: "Testar novo criativo com gancho (hook) forte nos primeiros 3s.",
+  isOppCtrHigh: "O tráfego está barato e engajado.",
+  isOppCtrHighAction: "Aumente o orçamento da peça ou clone a campanha para escalar horizontal.",
+  isAttCpcHigh: "Você está pagando caro pelo clique. Público saturado ou criativo desalinhado.",
+  isAttCpcHighAction: "Renove a segmentação Advantage ou o ângulo de oferta.",
+  isOppCpaDrop: "O custo por resultado entrou em queda de tração natural.",
+  isOppCpaDropAction: "Momento excelente para escalar o budget da campanha viva (+20% ao dia).",
+  isOppStable: "Operação saudável nos limiares.",
+  isOppStableAction: "Deixe o algoritmo otimizar na fase de aprendizado da Meta."
+};
+
 const BENCHMARKS = {
   ctr: 1.5,
   cpc: 2.0,
-  conversao: 5 // 5% de conversão de lead global por ex.
+  conversao: 5 // 5% de conversão base para greenlight
 };
 
+// ==========================================
+// HELPERS
+// ==========================================
 function getPreviousPeriod(from: Date, to: Date) {
   const diff = Math.max(differenceInDays(to, from), 0);
   const prevTo = subDays(from, 1);
@@ -50,7 +78,6 @@ function calcVariation(current: number, prev: number) {
 // ==========================================
 // COMPONENTES UX MINIS
 // ==========================================
-
 function KpiCard({ title, value, varPct, invertGood = false }: any) {
   const isUp = varPct >= 0;
   const isGood = invertGood ? !isUp : isUp;
@@ -58,13 +85,13 @@ function KpiCard({ title, value, varPct, invertGood = false }: any) {
   const Icon = isUp ? TrendingUp : TrendingDown;
 
   return (
-    <Card className="bg-card border-border shadow-sm flex flex-col justify-between">
+    <Card className="bg-card border-border shadow-sm flex flex-col justify-between hover:border-primary/50 transition-colors">
       <CardContent className="p-4">
-        <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-2">{title}</p>
+        <p className="text-[11px] font-bold uppercase text-muted-foreground tracking-wider mb-2">{title}</p>
         <div className="flex items-end justify-between">
-          <h3 className="text-2xl font-bold text-foreground">{value}</h3>
+          <h3 className="text-xl lg:text-2xl font-black text-foreground">{value}</h3>
           {(varPct !== 0 && varPct !== Infinity && !isNaN(varPct)) && (
-            <div className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${isGood ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
+            <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${isGood ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
                <Icon className="h-3 w-3" />
                {Math.abs(varPct).toFixed(1)}%
             </div>
@@ -79,21 +106,21 @@ function InsightItem({ type, title, message, action }: any) {
   const colors = {
     critical: 'border-l-destructive bg-destructive/5 text-destructive-foreground',
     attention: 'border-l-warning bg-warning/5 text-warning',
-    opportunity: 'border-l-primary bg-primary/5 text-primary'
+    opportunity: 'border-l-success bg-success/5 text-success' // Success em vez de primary para dar contraste positivo
   };
   const icons = {
     critical: <AlertTriangle className="h-5 w-5 text-destructive mr-2 flex-shrink-0" />,
     attention: <AlertCircle className="h-5 w-5 text-warning mr-2 flex-shrink-0" />,
-    opportunity: <Lightbulb className="h-5 w-5 text-primary mr-2 flex-shrink-0" />
+    opportunity: <Lightbulb className="h-5 w-5 text-success mr-2 flex-shrink-0" />
   };
 
   return (
-    <div className={`border-l-4 rounded-r-lg p-4 flex items-start ${colors[type as keyof typeof colors]}`}>
+    <div className={`border-l-4 rounded-r-lg p-4 flex items-start shadow-sm transition-transform hover:scale-[1.01] ${colors[type as keyof typeof colors]}`}>
       {icons[type as keyof typeof icons]}
       <div className="flex-1">
-        <h4 className="text-sm font-bold opacity-90">{title}</h4>
+        <h4 className="text-[13px] font-black opacity-90">{title}</h4>
         <p className="text-xs opacity-80 mt-1 mb-2 leading-relaxed">{message}</p>
-        <span className="text-[11px] font-semibold bg-background/50 px-2 py-1 rounded inline-block">🎯 Ação: {action}</span>
+        <span className="text-[10px] uppercase tracking-wider font-bold bg-background/50 px-2 py-1 rounded inline-block shadow-sm">🎯 Ação: {action}</span>
       </div>
     </div>
   );
@@ -104,7 +131,7 @@ function InsightItem({ type, title, message, action }: any) {
 // ==========================================
 
 export default function DashboardPage() {
-  const { dateRange } = useFilters();
+  const { dateRange, period, setPeriod } = useFilters();
   const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading } = useMetaContext();
 
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
@@ -116,7 +143,7 @@ export default function DashboardPage() {
   const prevDates = getPreviousPeriod(dateRange.from, dateRange.to);
   const prevTimeRangeJSON = JSON.stringify({ since: prevDates.from, until: prevDates.to });
 
-  // 1. LISTA DE CAMPANHAS PARA SELETOR STICKY
+  // 1. LISTA DE CAMPANHAS
   const { data: campaignList } = useQuery({
     queryKey: ['meta-campaigns-list', accountId],
     enabled: hasMetaSetup,
@@ -126,7 +153,7 @@ export default function DashboardPage() {
     }
   });
 
-  // 2. BUSCADOR CORE DE MÉTRICAS (ATUAL)
+  // 2. MÉTRICAS CORE (ATUAL)
   const queryParams = selectedCampaignId === 'all' ? 
     { level: 'account', fields: 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas', time_range: currTimeRangeJSON } 
     : 
@@ -143,7 +170,7 @@ export default function DashboardPage() {
     }
   });
 
-  // 3. BUSCADOR DE MÉTRICAS (ANTERIOR)
+  // 3. MÉTRICAS (ANTERIOR) PARA COMPARAÇÃO
   const prevQueryParams = { ...queryParams, time_range: prevTimeRangeJSON };
   const { data: prevMetrics } = useQuery({
     queryKey: ['meta-dash-prev', accountId, selectedCampaignId, prevDates.from, prevDates.to],
@@ -156,11 +183,11 @@ export default function DashboardPage() {
     }
   });
 
-  // 4. RANKING DE CRIATIVOS (Top 3 Melhores vs Piores por Custo de Resultado)
+  // 4. RANKING CRIATIVOS COM THUMBNAIL META API
   const rankingParams = selectedCampaignId === 'all' ? 
-    { level: 'ad', fields: 'ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 } 
+    { level: 'ad', fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 } 
     : 
-    { level: 'ad', campaign_id: selectedCampaignId, fields: 'ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 100 };
+    { level: 'ad', campaign_id: selectedCampaignId, fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 100 };
 
   const { data: creativeRanking } = useQuery({
     queryKey: ['meta-dash-creatives', accountId, selectedCampaignId, currFromStr, currToStr],
@@ -169,12 +196,14 @@ export default function DashboardPage() {
       const res = await insights_custom(token, accountId, rankingParams as any);
       const data = (res as any).data || res || [];
       const parsed = data.map((d: any) => {
-         const m = parseMetricsObject(d);
-         return { ...m, ad_name: d.ad_name };
-      }).filter((m: any) => m.spend > 0); // só quem gastou dinheiro
+         return {
+            ...parseMetricsObject(d),
+            ad_id: d.ad_id,
+            ad_name: d.ad_name,
+            thumbnail_url: null // popularemos logo em seguida para os tops
+         };
+      }).filter((m: any) => m.spend > 0);
 
-      // Ordenar do menor custo/resultado (melhor) para o maior
-      // Se não tem resultado, o CPA é o próprio spend (tecnicamente infinito, jogamos no final)
       const sorted = parsed.sort((a: any, b: any) => {
          const cpaA = a.results > 0 ? a.spend / a.results : 9999 + a.spend;
          const cpaB = b.results > 0 ? b.spend / b.results : 9999 + b.spend;
@@ -183,23 +212,41 @@ export default function DashboardPage() {
 
       const avgCpa = sorted.length ? sorted.reduce((sum: number, c: any) => sum + (c.results>0 ? c.spend/c.results : 0), 0) / sorted.filter((c:any)=>c.results>0).length : 0;
 
+      const best = sorted.slice(0, 3);
+      const worst = sorted.slice(-3).reverse(); // inverte para mostrar o mais crítico primeiro dependendo de como quer ler
+
+      // Buscar thumbnails atrelando à API gráfica específica do AD
+      async function fetchThumbs(adsList: any[]) {
+        return Promise.all(adsList.map(async (ad: any) => {
+           try {
+              if (!ad.ad_id) return ad;
+              const adInfo = await obter_criativo_do_anuncio(token, ad.ad_id);
+              ad.thumbnail_url = adInfo?.creative?.thumbnail_url || adInfo?.creative?.image_url || null;
+           } catch {
+              // ignora erro silencioso de permissão restrita para thumbnails
+           }
+           return ad;
+        }));
+      }
+
       return {
-        best: sorted.slice(0, 3), // top 3
-        worst: sorted.slice(-3).reverse(), // piores 3
+        best: await fetchThumbs(best),
+        worst: await fetchThumbs(worst),
         medianCpa: isNaN(avgCpa) ? 0 : avgCpa
       };
     }
   });
 
+
   // ==========================================
-  // PARSERS E PROCESSADORES
+  // PARSERS
   // ==========================================
   function parseMetricsObject(m: any) {
     const isWpp = m.actions?.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
     const isLead = m.actions?.find((a: any) => a.action_type === 'lead');
     const isPurch = m.actions?.find((a: any) => a.action_type === 'offsite_conversion.fb_pixel_purchase');
     
-    // Auto-detect funnel bottom
+    // Auto-detect do núcleo do funnel
     const resultAction = isPurch || isLead || isWpp || null;
     let resultType = 'clique';
     if (isPurch) resultType = 'compra';
@@ -222,227 +269,292 @@ export default function DashboardPage() {
     };
   }
 
-  // Montagem Lógica do Funil Horizontal
+  // Prepara variaveis unificadas do Funil
   const m = currMetrics || { spend:0, impressions:0, clicks:0, results:0, cpa:0, ctr:0, cpc:0, cpm:0, resultType:'evento' };
   const p = prevMetrics || { spend:0, impressions:0, clicks:0, results:0, cpa:0, ctr:0, cpc:0, cpm:0 };
-  
   const conversionRate = m.clicks > 0 ? (m.results / m.clicks) * 100 : 0;
 
-  // Montagem Lógica dos Insights Automáticos
+  // Auto-Insights System
   const autoInsights = useMemo(() => {
     if (!currMetrics) return [];
     const _in = [];
     if (currMetrics.ctr > 0 && currMetrics.ctr < BENCHMARKS.ctr) {
-      _in.push({ type: 'critical', title: 'CTR abaixo de 1.5%', message: `O seu click-through rate de ${currMetrics.ctr.toFixed(2)}% indica que o criativo não está parando o dedo da audiência.`, action: 'Testar novo criativo com gancho (hook) mais forte nos 3 primeiros segundos.' });
+      _in.push({ type: 'critical', title: `CTR Baixo (${currMetrics.ctr.toFixed(2)}%)`, message: STRINGS.isCritCtrLow, action: STRINGS.isCritCtrLowAction });
     } else if (currMetrics.ctr >= BENCHMARKS.ctr + 1) {
-      _in.push({ type: 'opportunity', title: 'Criativo Campeão (Alto CTR)', message: `Com um CTR fantástico de ${currMetrics.ctr.toFixed(2)}%, o tráfego está barato e engajado.`, action: 'Aumente o orçamento destas peças ou clone a campanha para escalar.' });
+      _in.push({ type: 'opportunity', title: `Tração Monstra (${currMetrics.ctr.toFixed(2)}% CTR)`, message: STRINGS.isOppCtrHigh, action: STRINGS.isOppCtrHighAction });
     }
 
     if (currMetrics.cpc > BENCHMARKS.cpc) {
-      _in.push({ type: 'attention', title: 'Custo por Clique Salgado', message: `Você está pagando ${formatCurrency(currMetrics.cpc)} por cada clique. O público pode estar saturado ou mal segmentado.`, action: 'Atualize os interesses ou troque a segmentação PMax/Advantage.' });
+      _in.push({ type: 'attention', title: `CPC em ${formatCurrency(currMetrics.cpc)}`, message: STRINGS.isAttCpcHigh, action: STRINGS.isAttCpcHighAction });
     }
     
     if (currMetrics.results > 0 && currMetrics.cpa < (prevMetrics?.cpa || 9999)) {
-       _in.push({ type: 'opportunity', title: 'Custo de Conversão em Queda!', message: `O CPA caiu para ${formatCurrency(currMetrics.cpa)}. Excelente tração.`, action: 'Momento seguro para escalar orçamento horizontal diário (+20%).' });
+       _in.push({ type: 'opportunity', title: `CPA Baixo: ${formatCurrency(currMetrics.cpa)}`, message: STRINGS.isOppCpaDrop, action: STRINGS.isOppCpaDropAction });
     }
 
     if (_in.length === 0) {
-      _in.push({ type: 'opportunity', title: 'Operação Estável', message: 'Nenhuma anomalia detectada nos KPIs base deste escopo.', action: 'Deixe o algoritmo trabalhar (Fase de Aprendizado).' });
+      _in.push({ type: 'opportunity', title: STRINGS.isOppStable, message: 'Benchmark respeitado globalmente.', action: STRINGS.isOppStableAction });
     }
     return _in;
   }, [currMetrics, prevMetrics]);
 
+
   // ==========================================
-  // RENDERIZAÇÃO
+  // RENDER UI
   // ==========================================
 
-  if (isMetaSetupLoading) return <div className="p-20 text-center"><BarChart className="animate-spin w-8 h-8 text-primary mx-auto" /></div>;
+  if (isMetaSetupLoading) return <div className="p-20 flex justify-center"><BarChart className="animate-spin w-10 h-10 text-primary" /></div>;
   if (!hasMetaSetup) return (
      <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
        <div className="rounded-full bg-secondary p-6 mb-4"><SettingsIcon className="h-10 w-10 text-muted-foreground" /></div>
-       <h2 className="text-xl font-bold mb-2 text-foreground">Acesso ao Painel Consultivo</h2>
-       <p className="text-muted-foreground max-w-md mb-6">Injetar a Camada de Inteligência exige acesso à sua conta de anúncios.</p>
-       <Link to="/settings"><Button>Vincular Meta Ads Agora</Button></Link>
+       <h2 className="text-xl font-bold mb-2">Conecte o Cérebro</h2>
+       <p className="text-muted-foreground max-w-md mb-6">A agência precisa vincular a Token Meta nas configurações para alimentar a consultoria inteligente desta página.</p>
+       <Link to="/settings"><Button>Ligar no Facebook Ads</Button></Link>
      </div>
   );
 
   return (
-    <div className="bg-background min-h-screen">
+    <div className="bg-background min-h-[100dvh]">
       
-      {/* 1. HEADER FIXO (STICKY) PIXEL PERFECT */}
-      <div className="sticky top-0 z-10 w-full border-b border-border bg-background/90 backdrop-blur-md px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-lg">
+      {/* HEADER FIXO - CONSULTOR UX */}
+      <div className="sticky top-0 z-20 w-full border-b border-border bg-background/95 backdrop-blur shadow-[0_2px_10px_rgba(0,0,0,0.05)] px-6 py-4 flex flex-col xl:flex-row items-center justify-between gap-4">
+        
+        <div className="flex items-center gap-3 w-full xl:w-auto">
+          <div className="h-11 w-11 rounded-full bg-primary/10 border border-primary/20 flex flex-shrink-0 items-center justify-center text-primary shadow-sm hover:scale-105 transition-transform">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-foreground tracking-tight">Consultor de Tráfego</h1>
-            <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
-               <span className="w-2 h-2 rounded-full bg-success"></span> Operando em tempo real
+            <h1 className="text-lg font-black tracking-tight">{STRINGS.headerTitle}</h1>
+            <p className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1.5 opacity-80">
+               <span className="w-1.5 h-1.5 rounded-full bg-success ring-2 ring-success/20 animate-pulse"></span> {STRINGS.headerSubtitle}
             </p>
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
-          <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
-            <SelectTrigger className="w-[200px] h-9 bg-secondary text-xs font-semibold">
-              <SelectValue placeholder="Selecione a fonte..." />
+        <div className="flex flex-wrap items-center justify-end gap-2.5 w-full xl:w-auto">
+          
+          {/* Seletor de Datas custom */}
+          <Select value={period} onValueChange={setPeriod as any}>
+            <SelectTrigger className="w-[140px] h-9 bg-secondary/50 font-bold text-xs ring-offset-background border-none focus:ring-primary/50">
+              <SelectValue placeholder="Data da Análise" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">📊 Todas as Campanhas</SelectItem>
+            <SelectContent className="font-semibold text-xs border-border">
+              <SelectItem value="7d">Últimos 7 dias</SelectItem>
+              <SelectItem value="30d">Últimos 30 dias</SelectItem>
+              <SelectItem value="90d">Últimos 90 dias</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Seletor de Campanhas Dinâmico */}
+          <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
+            <SelectTrigger className="w-[220px] h-9 bg-card font-semibold text-xs border-border flex-1 max-w-[220px] truncate focus:ring-primary/50">
+              <SelectValue placeholder="Alvo Analítico..." />
+            </SelectTrigger>
+            <SelectContent className="max-w-[300px]">
+              <SelectItem value="all" className="font-bold border-b border-border mb-1">📊 Mostrar Tudo (Base Global)</SelectItem>
               {campaignList?.map((c: any) => (
-                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                <SelectItem key={c.id} value={c.id} className="text-xs truncate">{c.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" className="h-9 gap-2 text-xs" onClick={() => refetch()} disabled={isMetricsLoading}>
-            <RefreshCw className={`w-3 h-3 ${isMetricsLoading ? 'animate-spin' : ''}`} /> Atualizar
+
+          <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 hover:scale-105 transition-transform active:scale-95 text-xs px-3" onClick={() => refetch()} disabled={isMetricsLoading}>
+            <RefreshCw className={`w-3.5 h-3.5 ${isMetricsLoading ? 'animate-spin' : ''}`} /> {STRINGS.btnUpdate}
           </Button>
-          <Link to="/insights"><Button size="sm" className="h-9 text-xs gap-1"><Lightbulb className="w-3 h-3"/> Insights Completos</Button></Link>
+
+          <Link to="/insights">
+            <Button size="sm" variant="outline" className="h-9 gap-1.5 text-[10px] uppercase font-black tracking-wider text-muted-foreground hover:text-foreground">
+               <SparklesIcon className="w-3.5 h-3.5 text-orange-400" /> {STRINGS.btnInsights}
+            </Button>
+          </Link>
+
         </div>
       </div>
 
-      <div className="p-6 max-w-7xl mx-auto space-y-8 pb-24">
+      <div className="p-6 max-w-[1400px] mx-auto space-y-8 pb-24">
         
-        {/* =========================================
-            2. OS KPIS DE SUPERFÍCIE (HORIZONTAL CARDS) 
-            ========================================= */}
+        {/* ======================= KPIs ======================== */}
         <div>
-          <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest mb-4 flex items-center gap-2">
-            Radar de Performance <Badge variant="secondary" className="text-[10px] uppercase font-mono bg-secondary/80">{currFromStr} até {currToStr}</Badge>
+          <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest mb-3 flex items-center gap-1.5">
+            <BarChart className="w-3 h-3" /> {STRINGS.titleKpis}
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-             <KpiCard title="Investimento" value={formatCurrency(m.spend)} varPct={calcVariation(m.spend, p.spend)} invertGood={true} />
-             <KpiCard title={`Atrações (${m.resultType})`} value={formatNumber(m.results)} varPct={calcVariation(m.results, p.results)} />
-             <KpiCard title={`CPA (Custo por ${m.resultType})`} value={formatCurrency(m.cpa)} varPct={calcVariation(m.cpa, p.cpa)} invertGood={true} />
-             <KpiCard title="CTR Geral" value={formatPercent(m.ctr)} varPct={calcVariation(m.ctr, p.ctr)} />
-             <KpiCard title="CPM" value={formatCurrency(m.cpm)} varPct={calcVariation(m.cpm, p.cpm)} invertGood={true} />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+             <KpiCard title="Investimento (Spend)" value={formatCurrency(m.spend)} varPct={calcVariation(m.spend, p.spend)} invertGood={true} />
+             <KpiCard title={`Volume (${m.resultType})`} value={formatNumber(m.results)} varPct={calcVariation(m.results, p.results)} />
+             <KpiCard title={`CPA Global`} value={formatCurrency(m.cpa)} varPct={calcVariation(m.cpa, p.cpa)} invertGood={true} />
+             <KpiCard title="CTR Geral (Ads)" value={formatPercent(m.ctr)} varPct={calcVariation(m.ctr, p.ctr)} />
+             <KpiCard title="Custo Rel. (CPM)" value={formatCurrency(m.cpm)} varPct={calcVariation(m.cpm, p.cpm)} invertGood={true} />
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-4 gap-6">
+        <div className="grid lg:grid-cols-12 gap-6">
 
           {/* =========================================
-              3. O FUNIL DINÂMICO CENTRAL (ESQUERDA 3 COLs)
+              FUNIL OTIMIZADO E RANKING (ESQUERDA)
               ========================================= */}
-          <div className="lg:col-span-3 space-y-4">
-            <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest flex items-center gap-2">
-              <FilterIcon className="w-4 h-4" /> Trajetória do Usuário (Funil)
-            </h2>
-            <Card className="bg-card border-none ring-1 ring-border/50 shadow-md">
-              <CardContent className="p-6 overflow-x-auto">
-                 <div className="flex items-center min-w-[700px] justify-between gap-2 relative">
-                    {/* Linha conectora no fundo */}
-                    <div className="absolute top-1/2 left-0 right-0 h-1 bg-secondary -translate-y-1/2 rounded-full hidden md:block z-0"></div>
-
-                    {/* BLOCO 1: ALCANCE / IMPRESSÃO */}
-                    <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-sm relative group hover:border-primary/50 transition-colors">
-                       <span className="text-xs font-bold uppercase text-muted-foreground mb-1"><Eye className="w-3 h-3 inline mr-1"/> Descoberta</span>
-                       <span className="text-3xl font-black text-foreground mb-2">{formatNumber(m.impressions)}</span>
-                       <span className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded-md font-mono">Impressões</span>
-                    </div>
-
-                    {/* Seta Com Taxa 1 */}
-                    <div className="flex flex-col items-center z-10 px-2">
-                       <span className={`text-xs font-bold px-2 py-1 rounded-full text-white mb-1 shadow-sm ${m.ctr >= BENCHMARKS.ctr ? 'bg-success' : 'bg-warning text-warning-foreground'}`}>
-                          {m.ctr.toFixed(2)}% CTR
-                       </span>
-                       <ArrowRight className="w-5 h-5 text-muted-foreground" />
-                    </div>
-
-                    {/* BLOCO 2: CLIQUE / INTENÇÃO */}
-                    <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-sm relative group hover:border-primary/50 transition-colors">
-                       <span className="text-xs font-bold uppercase text-muted-foreground mb-1"><MousePointer className="w-3 h-3 inline mr-1"/> Engajamento</span>
-                       <span className="text-3xl font-black text-foreground mb-2">{formatNumber(m.clicks)}</span>
-                       <span className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded-md font-mono">Cliques de Link</span>
-                       <span className="text-[10px] text-muted-foreground mt-2 font-mono">Custo: {formatCurrency(m.cpc)}/clique</span>
-                    </div>
-
-                    {/* Seta Com Taxa 2 */}
-                    <div className="flex flex-col items-center z-10 px-2">
-                       <span className={`text-xs font-bold px-2 py-1 rounded-full text-white mb-1 shadow-sm ${conversionRate >= BENCHMARKS.conversao ? 'bg-success' : 'bg-primary'}`}>
-                          {conversionRate.toFixed(2)}% CV
-                       </span>
-                       <ArrowRight className="w-5 h-5 text-muted-foreground" />
-                    </div>
-
-                    {/* BLOCO 3: CONVERSÃO FINAL */}
-                    <div className="flex flex-col items-center bg-card z-10 p-4 border border-border rounded-xl w-[200px] shadow-sm relative group ring-2 ring-primary/20">
-                       <span className="text-xs font-bold uppercase text-primary mb-1"><Target className="w-3 h-3 inline mr-1"/> Conversão</span>
-                       <span className="text-3xl font-black text-foreground mb-2">{formatNumber(m.results)}</span>
-                       <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-md font-mono uppercase font-bold">{m.resultType}s</span>
-                       <span className="text-[10px] text-muted-foreground mt-2 font-mono">Custo: {formatCurrency(m.cpa)}/{m.resultType}</span>
-                    </div>
-                 </div>
-              </CardContent>
-            </Card>
-
-            {/* =========================================
-                5. TELA DE CRIATIVOS / RANKING INFERIOR
-                ========================================= */}
-            <div className="pt-6">
-              <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest flex items-center gap-2 mb-4">
-                <Flame className="w-4 h-4 text-orange-500" /> Batalha de Criativos (Performance Absoluta pelo CPA)
+          <div className="lg:col-span-8 space-y-6">
+            
+            {/* FUNIL DINÂMICO NÚCLEO ZERO */}
+            <div className="space-y-3">
+              <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5">
+                <FilterIcon className="w-3 h-3" /> {STRINGS.titleFunnel}
               </h2>
-              <div className="grid md:grid-cols-2 gap-4">
-                {/* OS MELHORES */}
-                <Card className="bg-card border-success/30 shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Trophy className="w-24 h-24" /></div>
-                  <CardContent className="p-5 relative z-10">
-                    <h3 className="text-xs font-bold uppercase text-success mb-3 flex items-center gap-1"><ArrowRight className="w-3 h-3 rotate-45" /> Promessas Escalonáveis (Melhores)</h3>
-                    <div className="space-y-3">
-                      {creativeRanking?.best?.length ? creativeRanking.best.map((ad:any, i:number) => (
-                        <div key={i} className="flex flex-col gap-1 p-3 rounded-lg bg-success/5 border border-success/10">
-                          <p className="text-xs font-bold truncate" title={ad.ad_name}>{ad.ad_name}</p>
-                          <div className="flex justify-between items-center mt-1">
-                             <span className="text-[10px] text-muted-foreground font-mono">CPA: {formatCurrency(ad.results>0 ? ad.spend/ad.results : ad.spend)}</span>
-                             <span className="text-[10px] font-bold bg-success text-success-foreground px-1.5 py-0.5 rounded">{ad.results} resultados</span>
-                          </div>
+              
+              <Card className="bg-card/50 backdrop-blur border-border/50 shadow-sm overflow-hidden ring-1 ring-border shadow-inner">
+                <CardContent className="p-6 overflow-x-auto min-h-[160px] flex items-center">
+                   
+                   {m.impressions === 0 && !isMetricsLoading ? (
+                      <div className="w-full text-center text-xs font-bold text-muted-foreground py-8 opacity-70">
+                        {STRINGS.txtEmptyData}
+                      </div>
+                   ) : (
+                     <div className="flex items-center w-full min-w-[750px] justify-between relative mx-auto">
+                        <div className="absolute top-1/2 left-10 right-10 h-1 bg-border/50 -translate-y-1/2 rounded-full -z-10 shadow-inner hidden md:block"></div>
+
+                        {/* BLOCO IMPRESSÃO */}
+                        <div className="flex flex-col items-center bg-card z-10 p-5 pt-4 border border-border rounded-xl w-[220px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-background">
+                           <span className="text-[10px] font-black tracking-widest uppercase text-muted-foreground mb-1 flex items-center gap-1 opacity-80"><Eye className="w-3 h-3"/> Descoberta</span>
+                           <span className="text-4xl font-black text-foreground mb-1 tracking-tighter">{formatNumber(m.impressions)}</span>
+                           <span className="text-[9px] bg-secondary/80 text-secondary-foreground font-black px-2 py-0.5 rounded-sm uppercase tracking-wider opacity-80">Impressões</span>
                         </div>
-                      )) : <p className="text-xs text-muted-foreground">Poucos dados.</p>}
+
+                        {/* VAZAMENTO 1 */}
+                        <div className="flex flex-col items-center z-10 px-0.5 transform -translate-y-2">
+                           <span className={`text-[11px] font-black px-2.5 py-1 rounded shadow-sm mb-1 ${m.ctr >= BENCHMARKS.ctr ? 'bg-success text-success-foreground' : 'bg-destructive/10 border border-destructive/20 text-destructive'}`}>
+                              {m.ctr.toFixed(2)}% CTR
+                           </span>
+                           <ArrowRight className="w-5 h-5 text-border/80" />
+                        </div>
+
+                        {/* BLOCO CLIQUES */}
+                        <div className="flex flex-col items-center bg-card z-10 p-5 pt-4 border border-border rounded-xl w-[220px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-background">
+                           <span className="text-[10px] font-black tracking-widest uppercase text-muted-foreground mb-1 flex items-center gap-1 opacity-80"><MousePointer className="w-3 h-3"/> Intenção</span>
+                           <span className="text-4xl font-black text-foreground mb-1 tracking-tighter">{formatNumber(m.clicks)}</span>
+                           <span className="text-[9px] bg-secondary/80 text-secondary-foreground font-black px-2 py-0.5 rounded-sm uppercase tracking-wider opacity-80">Cliques</span>
+                           <span className="text-[10px] font-bold text-muted-foreground mt-3 tracking-tight bg-secondary/30 px-2 py-0.5 rounded">CPC {formatCurrency(m.cpc)}</span>
+                        </div>
+
+                        {/* VAZAMENTO 2 */}
+                        <div className="flex flex-col items-center z-10 px-0.5 transform -translate-y-2">
+                           <span className={`text-[11px] font-black px-2.5 py-1 rounded shadow-sm mb-1 ${conversionRate >= BENCHMARKS.conversao ? 'bg-success text-success-foreground' : 'bg-primary/10 border border-primary/20 text-primary'}`}>
+                              {conversionRate.toFixed(2)}% CV
+                           </span>
+                           <ArrowRight className="w-5 h-5 text-border/80" />
+                        </div>
+
+                        {/* BLOCO CONVERSÃO TARGET */}
+                        <div className="flex flex-col items-center bg-primary/5 z-10 p-5 pt-4 border-2 border-primary/50 rounded-xl w-[220px] shadow-[0_8px_30px_rgba(var(--primary),0.1)] ring-2 ring-primary/20 ring-offset-2 ring-offset-background relative overflow-hidden group">
+                           <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 to-transparent pointer-events-none"></div>
+                           <span className="text-[10px] font-black tracking-widest uppercase text-primary mb-1 flex items-center gap-1 drop-shadow-sm"><Target className="w-3 h-3"/> Aquisição</span>
+                           <span className="text-4xl font-black text-primary mb-1 tracking-tighter drop-shadow-sm">{formatNumber(m.results)}</span>
+                           <span className="text-[9px] bg-primary text-primary-foreground font-black px-2 py-0.5 rounded-sm uppercase tracking-wider">{m.resultType}</span>
+                           <span className="text-[10px] font-bold text-primary/80 mt-3 tracking-tight bg-background/50 backdrop-blur px-2 py-0.5 rounded shadow-sm border border-primary/10">CPA {formatCurrency(m.cpa)}</span>
+                        </div>
+                     </div>
+                   )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* RANKING COM THUMBNAILS (GALERIA) */}
+            <div className="pt-2">
+              <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 mb-3">
+                <Flame className="w-3 h-3 text-orange-500" /> {STRINGS.titleCreatives}
+              </h2>
+              
+              <div className="grid md:grid-cols-2 gap-4">
+                
+                {/* CAIXA DE MELHORES */}
+                <Card className="bg-success/5 border-success/30 shadow-sm transition-transform hover:shadow-md hover:border-success/50 relative overflow-hidden group">
+                  <div className="absolute -right-10 -top-10 text-success opacity-5 pointer-events-none transform group-hover:scale-110 transition-transform"><Trophy className="w-40 h-40" /></div>
+                  <CardContent className="p-4 relative z-10 flex flex-col h-full">
+                    <h3 className="text-[11px] font-black uppercase text-success mb-4 flex items-center gap-1.5 opacity-90 tracking-wider">
+                       <ArrowRight className="w-3.5 h-3.5 -rotate-45" /> {STRINGS.txtBestAds}
+                    </h3>
+                    
+                    <div className="space-y-2 flex-grow">
+                      {creativeRanking?.best?.length ? creativeRanking.best.map((ad:any, i:number) => (
+                        <div key={i} className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-success/20 items-center hover:bg-background transition-colors shadow-sm">
+                           
+                           {/* Mini-Thumb do Meta */}
+                           <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 relative">
+                              {ad.thumbnail_url ? 
+                                 <img src={ad.thumbnail_url} className="w-full h-full object-cover" alt="Ad thumb" /> 
+                                 : 
+                                 <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />
+                              }
+                           </div>
+
+                           <div className="flex-1 min-w-0">
+                               <p className="text-xs font-bold truncate text-foreground/90">{ad.ad_name}</p>
+                               <div className="flex justify-between items-center mt-1.5">
+                                  <span className="text-[10px] font-mono text-muted-foreground font-semibold">CPA {formatCurrency(ad.results>0 ? ad.spend/ad.results : ad.spend)}</span>
+                                  <Badge variant="default" className="bg-success hover:bg-success text-[9px] px-1.5 py-0 shadow-sm">{ad.results} cap</Badge>
+                               </div>
+                           </div>
+                        </div>
+                      )) : <p className="text-xs text-muted-foreground italic text-center p-4">Aguardando performance escalar.</p>}
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* OS PIORES */}
-                <Card className="bg-card border-destructive/30 shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><AlertTriangle className="w-24 h-24" /></div>
-                  <CardContent className="p-5 relative z-10">
-                    <h3 className="text-xs font-bold uppercase text-destructive mb-3 flex items-center gap-1"><ArrowRight className="w-3 h-3 -rotate-45" /> Sangria no Orçamento (Piores)</h3>
-                    <div className="space-y-3">
+                {/* CAIXA DE PIORES */}
+                <Card className="bg-destructive/5 border-destructive/30 shadow-sm transition-transform hover:shadow-md hover:border-destructive/50 relative overflow-hidden group">
+                  <div className="absolute -right-6 -bottom-6 text-destructive opacity-5 pointer-events-none transform group-hover:-rotate-12 transition-transform"><AlertTriangle className="w-32 h-32" /></div>
+                  <CardContent className="p-4 relative z-10 flex flex-col h-full">
+                    <h3 className="text-[11px] font-black uppercase text-destructive mb-4 flex items-center gap-1.5 opacity-90 tracking-wider">
+                       <TrendingDown className="w-3.5 h-3.5" /> {STRINGS.txtWorstAds}
+                    </h3>
+                    
+                    <div className="space-y-2 flex-grow">
                       {creativeRanking?.worst?.length ? creativeRanking.worst.map((ad:any, i:number) => (
-                        <div key={i} className="flex flex-col gap-1 p-3 rounded-lg bg-destructive/5 border border-destructive/10">
-                           <p className="text-xs font-bold truncate" title={ad.ad_name}>{ad.ad_name}</p>
-                           <div className="flex justify-between items-center mt-1">
-                              <span className="text-[10px] text-muted-foreground font-mono">Gasto Lixo: {formatCurrency(ad.spend)}</span>
-                              <span className="text-[10px] font-bold bg-destructive text-destructive-foreground px-1.5 py-0.5 rounded">{ad.results} resultados</span>
+                        <div key={i} className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-destructive/20 items-center hover:bg-background transition-colors shadow-sm opacity-90">
+                           
+                           {/* Mini-Thumb do Meta */}
+                           <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 grayscale hover:grayscale-0 transition-all">
+                              {ad.thumbnail_url ? 
+                                 <img src={ad.thumbnail_url} className="w-full h-full object-cover" alt="Ad thumb" /> 
+                                 : 
+                                 <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />
+                              }
+                           </div>
+
+                           <div className="flex-1 min-w-0">
+                               <p className="text-xs font-bold truncate text-foreground/90">{ad.ad_name}</p>
+                               <div className="flex justify-between items-center mt-1.5">
+                                  <span className="text-[10px] font-mono text-destructive/80 font-semibold">Gasto Lixo {formatCurrency(ad.spend)}</span>
+                                  <Badge variant="destructive" className="bg-destructive/80 text-[9px] px-1.5 py-0 shadow-sm">{ad.results} cap</Badge>
+                               </div>
                            </div>
                         </div>
-                      )) : <p className="text-xs text-muted-foreground">Poucos dados.</p>}
+                      )) : <p className="text-xs text-muted-foreground italic text-center p-4">Não há ads ruins em detecção.</p>}
                     </div>
                   </CardContent>
                 </Card>
               </div>
-            </div>
 
+            </div>
           </div>
 
           {/* =========================================
-              4. A CAMADA DE INTELIGÊNCIA DIREITA (1 COL)
+              AUTO INSIGHTS BAR (DIREITA)
               ========================================= */}
-          <div className="space-y-4">
-            <h2 className="text-sm font-black uppercase text-foreground/80 tracking-widest flex items-center gap-2">
-              <Lightbulb className="w-4 h-4 text-warning" /> Auto-Insights Express
+          <div className="lg:col-span-4 space-y-3">
+            <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5">
+              <Lightbulb className="w-3 h-3 text-warning" /> {STRINGS.titleInsights}
             </h2>
-            <Card className="bg-card border-none ring-1 ring-border/50 shadow-md h-full">
-              <CardContent className="p-0">
-                 <div className="p-4 bg-secondary/30 border-b border-border text-xs text-muted-foreground leading-relaxed">
-                   <strong>Aqui está o que está acontecendo:</strong> O algoritmo de regras varreu seu funil em {new Date().toLocaleTimeString('pt-BR')}.
+            <Card className="bg-card border-none ring-1 ring-border shadow-md shadow-black/5 h-[calc(100%-2rem)] flex flex-col">
+              <CardContent className="p-0 flex flex-col h-full">
+                 
+                 <div className="p-4 bg-primary/5 border-b border-primary/10 text-[11px] text-muted-foreground font-semibold flex items-start gap-2 leading-relaxed tracking-wide">
+                   <div className="bg-primary/20 rounded-full w-2 h-2 mt-1.5 shadow-[0_0_8px_rgba(var(--primary),0.8)] animate-pulse flex-shrink-0"></div> 
+                   <span>A inteligência local varreu as {m.spend > 0 ? "métricas desta conta" : "entidades dormentes"} em {new Date().toLocaleTimeString('pt-BR')} sob o framework AIB.</span>
                  </div>
-                 <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto">
+                 
+                 <div className="p-4 space-y-3 flex-1 overflow-y-auto max-h-[600px] lg:max-h-none scrollbar-thin">
                    {autoInsights.map((insight, idx) => (
                       <InsightItem 
-                         key={idx} 
+                         key={`insight-${idx}`} 
                          type={insight.type} 
                          title={insight.title} 
                          message={insight.message} 
@@ -450,13 +562,16 @@ export default function DashboardPage() {
                       />
                    ))}
                  </div>
-                 <div className="p-4 border-t border-border">
+                 
+                 <div className="p-4 border-t border-border bg-card/80 backdrop-blur pb-4 lg:pb-6">
                    <Link to="/insights">
-                      <Button variant="outline" className="w-full text-xs font-semibold h-8 rounded shrink shadow-sm flex items-center gap-2">
-                         <SparklesIcon className="w-3 h-3 text-primary" /> Análise Profunda com Claude
+                      <Button variant="default" className="w-full text-xs font-black uppercase tracking-wider h-11 rounded-lg shrink shadow-lg shadow-primary/20 flex items-center gap-2 hover:scale-[1.02] transition-transform active:scale-95">
+                         <SparklesIcon className="w-4 h-4 text-orange-300" /> Ir para Claude Central
                       </Button>
                    </Link>
+                   <p className="text-center text-[9px] text-muted-foreground mt-2 font-bold opacity-60 uppercase">O processamento profundo exige tokens</p>
                  </div>
+
               </CardContent>
             </Card>
           </div>
@@ -466,4 +581,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

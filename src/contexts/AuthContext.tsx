@@ -1,15 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 
-type AppRole = 'super_admin' | 'admin' | 'user';
+type AppRole = 'super_admin' | 'admin' | 'user' | 'viewer';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   roles: AppRole[];
   loading: boolean;
-  isSuperAdmin: boolean;
+  isAdmin: boolean;
   signUp: (email: string, password: string, name: string) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
@@ -78,10 +78,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRoles([]);
   };
 
-  const isSuperAdmin = roles.includes('super_admin');
+  const isAdmin = roles.includes('admin') || roles.includes('super_admin');
 
   return (
-    <AuthContext.Provider value={{ user, session, roles, loading, isSuperAdmin, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, session, roles, loading, isAdmin, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -21,8 +21,9 @@ import {
   TrendingUp, TrendingDown, Settings as SettingsIcon, AlertCircle, 
   Lightbulb, ArrowRight, Target, MousePointer, Eye,
   RefreshCw, BarChart, Trophy, Flame, AlertTriangle, ShieldCheck,
-  Filter as FilterIcon, Sparkles as SparklesIcon, ImageIcon, Pencil, X, PanelTopInactive, Users
+  Filter as FilterIcon, Sparkles as SparklesIcon, ImageIcon, Pencil, X, PanelTopInactive, Users, ChevronDown, ArrowUp, ArrowDown, CheckSquare
 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 
 import { Link } from 'react-router-dom';
 import { insights_custom, listar_campanhas, listar_conjuntos, obter_criativo_do_anuncio } from '@/services/metaApi';
@@ -155,9 +156,14 @@ export default function DashboardPage() {
   const { dateRange, prevDateRange } = useFilters();
   const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading } = useMetaContext();
 
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
+  const toggleCampaign = (id: string) => {
+     setSelectedCampaignIds(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+     setSelectedAdSetId('all'); // Reseta adset ao mexer em campanha plural
+  };
   const [selectedAdSetId, setSelectedAdSetId] = useState<string>('all');
   const [selectedAdModal, setSelectedAdModal] = useState<any>(null);
+  const [adsetSort, setAdsetSort] = useState<{key: string, dir: 'asc'|'desc'}>({key: 'spend', dir: 'desc'});
 
   // ESTADO DE PERSONALIZAÇÃO
   const [texts, setTexts] = useState<typeof DEFAULT_STRINGS>(DEFAULT_STRINGS);
@@ -171,9 +177,8 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-     // Reseta Conjuntos se a Campanha mudar
      setSelectedAdSetId('all');
-  }, [selectedCampaignId]);
+  }, [selectedCampaignIds]);
 
   const updateText = (key: keyof typeof DEFAULT_STRINGS, val: string) => {
     if(!key) return; 
@@ -200,22 +205,27 @@ export default function DashboardPage() {
      return Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
   }});
   const { data: adSetList } = useQuery({ 
-     queryKey: ['meta-adsets-list', accountId, selectedCampaignId], 
-     enabled: hasMetaSetup && selectedCampaignId !== 'all', 
+     queryKey: ['meta-adsets-list', accountId, selectedCampaignIds], 
+     enabled: hasMetaSetup && selectedCampaignIds.length > 0, 
      queryFn: async () => {
-        const res = await listar_conjuntos(token, accountId, selectedCampaignId, 100);
+        // Pega todos os AdSets se a filtragem for flexível ou itera se multiplas (por ora, fetch geral e local filter para UX super rapida)
+        const res = await listar_conjuntos(token, accountId, selectedCampaignIds[0] || 'all', 100);
         return Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
      }
   });
   
   // 2. MAIN KPIS
   const queryParams: any = selectedAdSetId !== 'all' ? { level: 'adset', adset_id: selectedAdSetId } 
-       : selectedCampaignId !== 'all' ? { level: 'campaign', campaign_id: selectedCampaignId }
        : { level: 'account' };
+  
+  if (selectedAdSetId === 'all' && selectedCampaignIds.length > 0) {
+     queryParams.filtering = JSON.stringify([{ field: "campaign.id", operator: "IN", value: selectedCampaignIds }]);
+  }
+
   queryParams.fields = 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas';
   
   const { data: currMetrics, isLoading: isMetricsLoading, refetch } = useQuery({
-    queryKey: ['meta-dash-curr', accountId, selectedCampaignId, selectedAdSetId, currFromStr, currToStr],
+    queryKey: ['meta-dash-curr', accountId, selectedCampaignIds, selectedAdSetId, currFromStr, currToStr],
     enabled: hasMetaSetup,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, {...queryParams, time_range: currTimeRangeJSON});
@@ -225,7 +235,7 @@ export default function DashboardPage() {
   });
 
   const { data: prevMetrics } = useQuery({
-    queryKey: ['meta-dash-prev', accountId, selectedCampaignId, selectedAdSetId, prevDateRange.from.toISOString(), prevDateRange.to.toISOString()],
+    queryKey: ['meta-dash-prev', accountId, selectedCampaignIds, selectedAdSetId, prevDateRange.from.toISOString(), prevDateRange.to.toISOString()],
     enabled: hasMetaSetup,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, {...queryParams, time_range: prevTimeRangeJSON});
@@ -235,12 +245,14 @@ export default function DashboardPage() {
   });
 
   // 3. RANKINGS (AD SETS & CREATIVES)
-  const rankingParamsBase = selectedAdSetId !== 'all' ? { level: 'ad', adset_id: selectedAdSetId }
-      : selectedCampaignId !== 'all' ? { level: 'ad', campaign_id: selectedCampaignId }
+  const rankingParamsBase: any = selectedAdSetId !== 'all' ? { level: 'ad', adset_id: selectedAdSetId }
       : { level: 'ad' };
+  if (selectedAdSetId === 'all' && selectedCampaignIds.length > 0) {
+      rankingParamsBase.filtering = JSON.stringify([{ field: "campaign.id", operator: "IN", value: selectedCampaignIds }]);
+  }
 
   const { data: creativeRanking } = useQuery({
-    queryKey: ['meta-dash-creatives', accountId, selectedCampaignId, selectedAdSetId, currFromStr, currToStr],
+    queryKey: ['meta-dash-creatives', accountId, selectedCampaignIds, selectedAdSetId, currFromStr, currToStr],
     enabled: hasMetaSetup && isVisible('creatives'),
     queryFn: async () => {
       const res = await insights_custom(token, accountId, { ...rankingParamsBase, fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 });
@@ -264,19 +276,35 @@ export default function DashboardPage() {
     }
   });
 
-  // ADSET RANKING (Saúde dos Conjuntos) - Traz todos da Campanha (Filtro útil antes do drill-down Adset)
-  const adsetRankingParams = selectedCampaignId !== 'all' ? { level: 'adset', campaign_id: selectedCampaignId } : { level: 'adset' };
+  // ADSET RANKING (Saúde dos Conjuntos)
+  const adsetRankingParams: any = { level: 'adset' };
+  if (selectedCampaignIds.length > 0) {
+      adsetRankingParams.filtering = JSON.stringify([{ field: "campaign.id", operator: "IN", value: selectedCampaignIds }]);
+  }
+
   const { data: adSetRanking } = useQuery({
-    queryKey: ['meta-dash-adset-ranking', accountId, selectedCampaignId, currFromStr, currToStr],
+    queryKey: ['meta-dash-adset-ranking', accountId, selectedCampaignIds, currFromStr, currToStr],
     enabled: hasMetaSetup && isVisible('adsets') && selectedAdSetId === 'all',
     queryFn: async () => {
       const res = await insights_custom(token, accountId, { ...adsetRankingParams, fields: 'adset_id,adset_name,spend,actions,cpc,ctr,cpm', time_range: currTimeRangeJSON, limit: 100 });
       let data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
-      const parsed = data.map((d: any) => ({ ...parseMetricsObject(d), adset_id: d.adset_id, adset_name: d.adset_name })).filter((m: any) => m.spend > 0);
-      // Order by Highest Spend (Focus the optimization effort)
-      return parsed.sort((a:any, b:any) => b.spend - a.spend);
+      return data.map((d: any) => ({ ...parseMetricsObject(d), adset_id: d.adset_id, adset_name: d.adset_name })).filter((m: any) => m.spend > 0);
     }
   });
+
+  const sortedAdSets = useMemo(() => {
+     if(!adSetRanking) return [];
+     return [...adSetRanking].sort((a:any, b:any) => {
+        let valA = a[adsetSort.key] || 0;
+        let valB = b[adsetSort.key] || 0;
+        if(adsetSort.key === 'cpa') {
+           valA = a.results > 0 ? a.spend / a.results : a.spend;
+           valB = b.results > 0 ? b.spend / b.results : b.spend;
+        }
+        if(adsetSort.dir === 'asc') return valA - valB;
+        return valB - valA;
+     });
+  }, [adSetRanking, adsetSort]);
 
 
   // PARSERS
@@ -334,23 +362,34 @@ export default function DashboardPage() {
         
         <div className="flex flex-wrap items-center justify-end gap-2.5 w-full xl:w-auto">
           <DateRangePicker />
-          <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
-            <SelectTrigger className="w-[180px] h-9 bg-card font-semibold text-xs border-border flex-1 max-w-[200px] truncate">
-              <SelectValue placeholder="Alvo Campanha..." />
-            </SelectTrigger>
-            <SelectContent className="max-w-[300px]">
-              <SelectItem value="all" className="font-bold border-b border-border mb-1">📊 Mostrar Tudo Global</SelectItem>
-              {campaignList?.map((c: any) => (<SelectItem key={c.id} value={c.id} className="text-xs truncate">{c.name}</SelectItem>))}
-            </SelectContent>
-          </Select>
           
-          {selectedCampaignId !== 'all' && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+               <Button variant="outline" className="w-[180px] h-9 bg-card font-semibold text-xs border-border flex-1 max-w-[200px] shadow-sm justify-between truncate">
+                  <span className="truncate">{selectedCampaignIds.length === 0 ? "📊 Todas as Campanhas" : `${selectedCampaignIds.length} Campanhas Selecionadas`}</span>
+                  <ChevronDown className="w-3.5 h-3.5 opacity-50 shrink-0" />
+               </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-[280px] max-h-[400px] overflow-y-auto" align="end">
+               <DropdownMenuLabel className="text-[10px] uppercase font-bold text-muted-foreground">Foco Analítico</DropdownMenuLabel>
+               <DropdownMenuSeparator />
+               <DropdownMenuCheckboxItem checked={selectedCampaignIds.length === 0} onCheckedChange={() => setSelectedCampaignIds([])} className="font-bold text-primary">Mostrar Tudo Global</DropdownMenuCheckboxItem>
+               <DropdownMenuSeparator />
+               {campaignList?.map((c: any) => (
+                 <DropdownMenuCheckboxItem key={c.id} checked={selectedCampaignIds.includes(c.id)} onCheckedChange={() => toggleCampaign(c.id)} className="text-xs truncate" title={c.name}>
+                    {c.name}
+                 </DropdownMenuCheckboxItem>
+               ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          {selectedCampaignIds.length > 0 && (
             <Select value={selectedAdSetId} onValueChange={setSelectedAdSetId}>
               <SelectTrigger className="w-[180px] h-9 bg-card/50 ring-1 ring-primary/20 bg-primary/5 font-semibold text-xs border-border flex-1 max-w-[200px] truncate shadow-inner">
-                 <SelectValue placeholder="Alvo AdSet..." />
+                 <SelectValue placeholder="Convergência AdSet" />
               </SelectTrigger>
               <SelectContent className="max-w-[300px]">
-                <SelectItem value="all" className="font-bold border-b border-border mb-1 text-primary">⚡ Cmp - Tudo</SelectItem>
+                <SelectItem value="all" className="font-bold border-b border-border mb-1 text-primary">⚡ Intersecção Global</SelectItem>
                 {adSetList?.map((c: any) => (<SelectItem key={c.id} value={c.id} className="text-xs truncate">{c.name}</SelectItem>))}
               </SelectContent>
             </Select>
@@ -433,13 +472,19 @@ export default function DashboardPage() {
                          <thead className="bg-secondary/20 border-b border-border text-[10px] uppercase font-black tracking-wider">
                            <tr>
                              <th className="p-3 pl-4">Nome do Conjunto</th>
-                             <th className="p-3 text-right">Gasto (Saída)</th>
-                             <th className="p-3 text-right">Aquis. (Volume)</th>
-                             <th className="p-3 text-right pr-4">CPA (Custo Saúde)</th>
+                             <th className="p-3 text-right cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => setAdsetSort({key:'spend', dir: adsetSort.key==='spend'&&adsetSort.dir==='desc'?'asc':'desc'})}>
+                                Gasto (Saída) {adsetSort.key==='spend' && (adsetSort.dir==='desc'?<ArrowDown className="w-3 h-3 inline"/>:<ArrowUp className="w-3 h-3 inline"/>)}
+                             </th>
+                             <th className="p-3 text-right cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => setAdsetSort({key:'results', dir: adsetSort.key==='results'&&adsetSort.dir==='desc'?'asc':'desc'})}>
+                                Aquis. (Volume) {adsetSort.key==='results' && (adsetSort.dir==='desc'?<ArrowDown className="w-3 h-3 inline"/>:<ArrowUp className="w-3 h-3 inline"/>)}
+                             </th>
+                             <th className="p-3 text-right pr-4 cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => setAdsetSort({key:'cpa', dir: adsetSort.key==='cpa'&&adsetSort.dir==='asc'?'desc':'asc'})}>
+                                CPA (Custo Saúde) {adsetSort.key==='cpa' && (adsetSort.dir==='asc'?<ArrowUp className="w-3 h-3 inline"/>:<ArrowDown className="w-3 h-3 inline"/>)}
+                             </th>
                            </tr>
                          </thead>
                          <tbody className="divide-y divide-border/50">
-                            {adSetRanking.map((adset: any, i:number) => {
+                            {sortedAdSets.map((adset: any, i:number) => {
                                const thisCpa = adset.results > 0 ? adset.spend / adset.results : adset.spend;
                                const globalCpa = m.cpa || 0;
                                const isGood = thisCpa <= (globalCpa * 1.1) && adset.results > 0;
@@ -514,7 +559,7 @@ export default function DashboardPage() {
 
             {/* CHARTS DA API BREAKDOWNS (NOVO) */}
             <AudienceCharts 
-               selectedCampaignId={selectedCampaignId} 
+               selectedCampaignIds={selectedCampaignIds} 
                selectedAdSetId={selectedAdSetId} 
                isVisible={isVisible('audience')}
                onClose={() => togglePanel('audience')}

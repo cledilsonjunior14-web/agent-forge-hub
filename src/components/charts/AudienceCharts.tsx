@@ -10,13 +10,13 @@ import { Activity, Users, Map, Clock, ShieldCheck, X, AlertTriangle, Info } from
 import { formatCurrency, formatNumber, formatPercent } from '@/lib/formatters';
 
 export function AudienceCharts({ 
-  selectedCampaignId, 
+  selectedCampaignIds, 
   selectedAdSetId,
   isVisible,
   onClose,
   texts
 }: { 
-  selectedCampaignId: string; 
+  selectedCampaignIds: string[]; 
   selectedAdSetId: string;
   isVisible: boolean;
   onClose: () => void;
@@ -35,9 +35,9 @@ export function AudienceCharts({
   if (selectedAdSetId !== 'all') {
     baseParams.level = 'adset';
     baseParams.adset_id = selectedAdSetId;
-  } else if (selectedCampaignId !== 'all') {
+  } else if (selectedCampaignIds && selectedCampaignIds.length > 0) {
     baseParams.level = 'campaign';
-    baseParams.campaign_id = selectedCampaignId;
+    baseParams.filtering = JSON.stringify([{ field: "campaign.id", operator: "IN", value: selectedCampaignIds }]);
   } else {
     baseParams.level = 'account';
   }
@@ -64,7 +64,7 @@ export function AudienceCharts({
 
   // 1. AGE & GENDER
   const { data: demogData } = useQuery({
-    queryKey: ['meta-dash-demog', accountId, selectedCampaignId, selectedAdSetId, time_range],
+    queryKey: ['meta-dash-demog', accountId, selectedCampaignIds, selectedAdSetId, time_range],
     enabled: hasMetaSetup && isVisible,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, { ...baseParams, breakdowns: 'age,gender' });
@@ -87,10 +87,10 @@ export function AudienceCharts({
 
   // 2. PLACEMENT & PLATFORM
   const { data: platformData } = useQuery({
-    queryKey: ['meta-dash-platform', accountId, selectedCampaignId, selectedAdSetId, time_range],
+    queryKey: ['meta-dash-platform', accountId, selectedCampaignIds, selectedAdSetId, time_range],
     enabled: hasMetaSetup && isVisible,
     queryFn: async () => {
-      const res = await insights_custom(token, accountId, { ...baseParams, breakdowns: 'publisher_platform,placement' });
+      const res = await insights_custom(token, accountId, { ...baseParams, breakdowns: 'publisher_platform,platform_position' });
       const rawData = (res as any).data || res;
       const data = parseAction(Array.isArray(rawData) ? rawData : []);
       const platMap: Record<string, any> = {};
@@ -110,7 +110,7 @@ export function AudienceCharts({
 
   // 3. HOURLY STATS
   const { data: hourlyData } = useQuery({
-    queryKey: ['meta-dash-hourly', accountId, selectedCampaignId, selectedAdSetId, time_range],
+    queryKey: ['meta-dash-hourly', accountId, selectedCampaignIds, selectedAdSetId, time_range],
     enabled: hasMetaSetup && isVisible,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, { ...baseParams, breakdowns: 'hourly_stats_aggregated_by_audience_time_zone' });
@@ -133,7 +133,7 @@ export function AudienceCharts({
 
   // 4. DAILY TRENDS
   const { data: dailyData } = useQuery({
-    queryKey: ['meta-dash-daily', accountId, selectedCampaignId, selectedAdSetId, time_range],
+    queryKey: ['meta-dash-daily', accountId, selectedCampaignIds, selectedAdSetId, time_range],
     enabled: hasMetaSetup && isVisible,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, { ...baseParams, time_increment: 1 });

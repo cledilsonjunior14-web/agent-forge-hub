@@ -94,12 +94,37 @@ export function AudienceCharts({
       const rawData = (res as any).data || res;
       const data = parseAction(Array.isArray(rawData) ? rawData : []);
       const platMap: Record<string, any> = {};
+      
+      const formatPlacementName = (pub: string, pos: string) => {
+         if (!pub || pub === 'undefined') return 'Desconhecido';
+         if (!pos || pos === 'undefined') pos = 'Geral';
+         const p = pub.toLowerCase();
+         const s = pos.toLowerCase();
+         if (p.includes('instagram')) {
+            if (s.includes('story')) return 'IG Stories';
+            if (s.includes('feed')) return 'IG Feed';
+            if (s.includes('reels')) return 'IG Reels';
+            if (s.includes('explore')) return 'IG Explore';
+            return 'Instagram';
+         }
+         if (p.includes('facebook')) {
+            if (s.includes('story')) return 'FB Stories';
+            if (s.includes('feed')) return 'FB Feed';
+            if (s.includes('video')) return 'FB Videos';
+            if (s.includes('right_hand')) return 'FB Coluna Dir';
+            return 'Facebook';
+         }
+         if (p.includes('audience_network')) return 'Audience Net';
+         if (p.includes('messenger')) return 'Messenger';
+         return `${pub} - ${pos}`.substring(0, 15);
+      };
+
       data.forEach(d => {
-         const p = `${d.publisher_platform} - ${d.placement}`;
-         if (!platMap[p]) platMap[p] = { name: p, spend: 0, results: 0, impressions: 0 };
-         platMap[p].spend += d.spend;
-         platMap[p].results += d.results;
-         platMap[p].impressions += d.impressions;
+         const pName = formatPlacementName(d.publisher_platform, d.platform_position || d.placement);
+         if (!platMap[pName]) platMap[pName] = { name: pName, spend: 0, results: 0, impressions: 0 };
+         platMap[pName].spend += d.spend;
+         platMap[pName].results += d.results;
+         platMap[pName].impressions += d.impressions;
       });
       return Object.values(platMap)
         .map((p:any) => ({...p, cpa: p.results > 0 ? p.spend/p.results : p.spend }))
@@ -251,7 +276,7 @@ export function AudienceCharts({
                {platformData && platformData.length > 0 && platformData.some(p => p[metric] > 0) ? (
                  <ResponsiveContainer width="100%" height="100%">
                    <PieChart>
-                     <Pie data={platformData} dataKey={metric} nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={90} stroke="none" labelLine={false} label={(p) => p.name.split('-')[1]? p.name.split('-')[1].substring(0,8) : p.name.substring(0,8)}>
+                     <Pie data={platformData} dataKey={metric} nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={90} stroke="none" labelLine={false} label={(p) => p.name}>
                         {platformData.map((e, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                      </Pie>
                      <Tooltip contentStyle={{backgroundColor: '#111', borderColor: '#333', fontSize: '11px', borderRadius: '8px'}} itemStyle={{color: '#fff'}} formatter={(val: number) => formatValue(val)} />

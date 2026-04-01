@@ -15,6 +15,7 @@ import AdsPage from '@/pages/AdsPage';
 import CreativesPage from '@/pages/CreativesPage';
 import AlertsPage from '@/pages/AlertsPage';
 import InsightsPage from '@/pages/InsightsPage';
+import SettingsPage from '@/pages/SettingsPage';
 import NotFound from '@/pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -39,6 +40,7 @@ function App() {
                   <Route path="/creatives" element={<CreativesPage />} />
                   <Route path="/alerts" element={<AlertsPage />} />
                   <Route path="/insights" element={<InsightsPage />} />
+                  <Route path="/settings" element={<SettingsPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<NotFound />} />

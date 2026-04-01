@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Megaphone, Image, AlertTriangle, Sparkles, LogOut,
+  LayoutDashboard, Megaphone, Image, AlertTriangle, Sparkles, LogOut, Settings as SettingsIcon,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,6 +15,7 @@ const navItems = [
   { title: 'Criativos', url: '/creatives', icon: Image },
   { title: 'Alertas', url: '/alerts', icon: AlertTriangle },
   { title: 'Insights IA', url: '/insights', icon: Sparkles },
+  { title: 'Configurações', url: '/settings', icon: SettingsIcon },
 ];
 
 export function AppSidebar() {

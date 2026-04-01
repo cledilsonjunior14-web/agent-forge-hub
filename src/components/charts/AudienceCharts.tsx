@@ -151,7 +151,7 @@ export function AudienceCharts({
            <Activity className="w-5 h-5 text-primary" /> 
            Inteligência Demográfica e Posicionamentos
          </h2>
-         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10" onClick={onClose} title="Ocultar Painel"><X className="w-4 h-4"/></Button>
+         <button className="h-6 w-6 p-0 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 rounded inline-flex items-center justify-center transition-colors focus:outline-none" onClick={onClose} title="Ocultar Painel"><X className="w-4 h-4"/></button>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">

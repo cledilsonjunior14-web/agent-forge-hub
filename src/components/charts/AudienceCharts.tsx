@@ -4,6 +4,7 @@ import { useFilters } from '@/contexts/FilterContext';
 import { useMetaContext } from '@/hooks/useMetaContext';
 import { insights_custom } from '@/services/metaApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { BarChart as BarC, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, Legend } from 'recharts';
 import { Activity, Users, Map, Clock, ShieldCheck, X } from 'lucide-react';
 
@@ -40,6 +41,7 @@ export function AudienceCharts({
 
   // Helper to parse CPA and results from standard Action structure
   const parseAction = (dataArray: any[]) => {
+    if (!Array.isArray(dataArray)) return [];
     return dataArray.map(m => {
       const isLead = m.actions?.find((a: any) => a.action_type === 'lead');
       const isPurch = m.actions?.find((a: any) => a.action_type === 'offsite_conversion.fb_pixel_purchase');

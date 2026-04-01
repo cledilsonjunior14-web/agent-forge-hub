@@ -195,11 +195,17 @@ export default function DashboardPage() {
   const prevTimeRangeJSON = JSON.stringify({ since: prevDateRange.from.toISOString().split('T')[0], until: prevDateRange.to.toISOString().split('T')[0] });
 
   // 1. SELECTORS DROPDOWN LISTS
-  const { data: campaignList } = useQuery({ queryKey: ['meta-campaigns-list', accountId], enabled: hasMetaSetup, queryFn: async () => ((await listar_campanhas(token, accountId, 100)) as any).data || [] });
+  const { data: campaignList } = useQuery({ queryKey: ['meta-campaigns-list', accountId], enabled: hasMetaSetup, queryFn: async () => {
+     const res = await listar_campanhas(token, accountId, 100);
+     return Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
+  }});
   const { data: adSetList } = useQuery({ 
      queryKey: ['meta-adsets-list', accountId, selectedCampaignId], 
      enabled: hasMetaSetup && selectedCampaignId !== 'all', 
-     queryFn: async () => ((await listar_conjuntos(token, accountId, selectedCampaignId, 100)) as any).data || [] 
+     queryFn: async () => {
+        const res = await listar_conjuntos(token, accountId, selectedCampaignId, 100);
+        return Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
+     }
   });
   
   // 2. MAIN KPIS
@@ -213,8 +219,8 @@ export default function DashboardPage() {
     enabled: hasMetaSetup,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, {...queryParams, time_range: currTimeRangeJSON});
-      const data = (res as any).data || res;
-      return data && data.length > 0 ? parseMetricsObject(data[0]) : null;
+      const data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
+      return data.length > 0 ? parseMetricsObject(data[0]) : null;
     }
   });
 
@@ -223,8 +229,8 @@ export default function DashboardPage() {
     enabled: hasMetaSetup,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, {...queryParams, time_range: prevTimeRangeJSON});
-      const data = (res as any).data || res;
-      return data && data.length > 0 ? parseMetricsObject(data[0]) : null;
+      const data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
+      return data.length > 0 ? parseMetricsObject(data[0]) : null;
     }
   });
 
@@ -238,7 +244,7 @@ export default function DashboardPage() {
     enabled: hasMetaSetup && isVisible('creatives'),
     queryFn: async () => {
       const res = await insights_custom(token, accountId, { ...rankingParamsBase, fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 });
-      const data = (res as any).data || res || [];
+      let data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
       const parsed = data.map((d: any) => ({ ...parseMetricsObject(d), ad_id: d.ad_id, ad_name: d.ad_name, creativeDetails: null })).filter((m: any) => m.spend > 0);
       const sorted = parsed.sort((a: any, b: any) => {
          const cpaA = a.results > 0 ? a.spend / a.results : 9999 + a.spend;
@@ -265,7 +271,7 @@ export default function DashboardPage() {
     enabled: hasMetaSetup && isVisible('adsets') && selectedAdSetId === 'all',
     queryFn: async () => {
       const res = await insights_custom(token, accountId, { ...adsetRankingParams, fields: 'adset_id,adset_name,spend,actions,cpc,ctr,cpm', time_range: currTimeRangeJSON, limit: 100 });
-      const data = (res as any).data || res || [];
+      let data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
       const parsed = data.map((d: any) => ({ ...parseMetricsObject(d), adset_id: d.adset_id, adset_name: d.adset_name })).filter((m: any) => m.spend > 0);
       // Order by Highest Spend (Focus the optimization effort)
       return parsed.sort((a:any, b:any) => b.spend - a.spend);

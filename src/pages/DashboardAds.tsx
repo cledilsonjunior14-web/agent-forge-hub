@@ -1,76 +1,105 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useFilters } from '@/contexts/FilterContext';
+import { useMetaContext } from '@/hooks/useMetaContext';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, Eye, MousePointer, Target, TrendingUp, BarChart3, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { DollarSign, Eye, MousePointer, Target, TrendingUp, BarChart3, AlertTriangle, Settings as SettingsIcon, CheckCircle2 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Link } from 'react-router-dom';
+import { insights_custom } from '@/services/metaApi';
 
 export default function DashboardPage() {
-  const { selectedClientId, dateRange } = useFilters();
+  const { dateRange } = useFilters();
+  const { token, accountId, hasMetaSetup, isLoading: isMetaLoading } = useMetaContext();
+
   const fromStr = dateRange.from.toISOString().split('T')[0];
   const toStr = dateRange.to.toISOString().split('T')[0];
 
-  // Métricas agregadas
-  const { data: metrics } = useQuery({
-    queryKey: ['dashboard-metrics', selectedClientId, fromStr, toStr],
+  const timeRangeJSON = JSON.stringify({ since: fromStr, until: toStr });
+
+  // Métricas agregadas reais da Meta API
+  const { data: metrics, isLoading: isMetricsLoading } = useQuery({
+    queryKey: ['meta-dashboard-metrics', accountId, fromStr, toStr],
+    enabled: hasMetaSetup,
     queryFn: async () => {
-      let query = supabase
-        .from('metrics')
-        .select('*')
-        .eq('entity_type', 'campaign')
-        .gte('date', fromStr)
-        .lte('date', toStr);
-
-      if (selectedClientId) {
-        const { data: camps } = await supabase.from('campaigns').select('id').eq('client_id', selectedClientId);
-        const ids = camps?.map((c: any) => c.id) || [];
-        if (ids.length === 0) return null;
-        query = query.in('entity_id', ids);
-      }
-
-      const { data } = await query;
+      // Pedimos clicks, impressões, gasto, e todas as conversões padrão
+      const res = await insights_custom(token, accountId, { 
+        level: 'account', 
+        fields: 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas', 
+        time_range: timeRangeJSON 
+      });
+      const data = (res as any).data || res;
       if (!data || data.length === 0) return null;
-
-      const agg = {
-        spend: data.reduce((s, m) => s + Number(m.spend), 0),
-        impressions: data.reduce((s, m) => s + Number(m.impressions), 0),
-        clicks: data.reduce((s, m) => s + Number(m.clicks), 0),
-        results: data.reduce((s, m) => s + Number(m.results), 0),
-        reach: data.reduce((s, m) => s + Number(m.reach), 0),
-      };
+      
+      const m = data[0]; // row único pois é agregação da conta inteira
+      
+      // Meta retorna ações em um Array. Tentamos achar uma conversão ou click link
+      const resultsVal = m.actions?.find((a: any) => a.action_type === 'offsite_conversion.fb_pixel_purchase' || a.action_type === 'link_click')?.value || m.clicks || 0;
+      const roasVal = m.purchase_roas?.[0]?.value || 0;
 
       return {
-        ...agg,
-        ctr: agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0,
-        cpc: agg.clicks > 0 ? agg.spend / agg.clicks : 0,
-        cpm: agg.impressions > 0 ? (agg.spend / agg.impressions) * 1000 : 0,
-        roas: agg.spend > 0 ? (agg.results * 100) / agg.spend : 0,
+        spend: Number(m.spend || 0),
+        impressions: Number(m.impressions || 0),
+        clicks: Number(m.clicks || 0),
+        results: Number(resultsVal),
+        roas: Number(roasVal),
+        cpc: Number(m.cpc || 0),
+        cpm: Number(m.cpm || 0),
+        ctr: Number(m.ctr || 0)
       };
     },
   });
 
-  // Gráfico de investimento por dia
+  // Gráfico de investimento diário da Meta API
   const { data: chartData } = useQuery({
-    queryKey: ['spend-chart', selectedClientId, fromStr, toStr],
+    queryKey: ['meta-spend-chart', accountId, fromStr, toStr],
+    enabled: hasMetaSetup,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('metrics')
-        .select('date, spend')
-        .eq('entity_type', 'campaign')
-        .gte('date', fromStr)
-        .lte('date', toStr)
-        .order('date');
+      const res = await insights_custom(token, accountId, { 
+        level: 'account', 
+        time_increment: 1, 
+        time_range: timeRangeJSON 
+      });
+      const data = (res as any).data || res;
       if (!data) return [];
-      const grouped: Record<string, number> = {};
-      data.forEach((m) => { grouped[m.date] = (grouped[m.date] || 0) + Number(m.spend); });
-      return Object.entries(grouped).map(([date, spend]) => ({ date, spend }));
+      
+      return data.map((d: any) => ({
+        date: d.date_start,
+        spend: Number(d.spend || 0)
+      }));
     },
   });
 
-  // Alertas ativos
+  // Top campanhas (Ordenadas pelo Facebook, geralmente por gasto/performance nativa se não mexermos)
+  const { data: topCampaigns } = useQuery({
+    queryKey: ['meta-top-campaigns', accountId, fromStr, toStr],
+    enabled: hasMetaSetup,
+    queryFn: async () => {
+      const res = await insights_custom(token, accountId, { 
+        level: 'campaign', 
+        fields: 'campaign_id,campaign_name,objective,spend', 
+        time_range: timeRangeJSON 
+      });
+      const data = (res as any).data || res;
+      if (!data) return [];
+      
+      // Ordenando por Spend
+      const sorted = data.sort((a: any, b: any) => Number(b.spend || 0) - Number(a.spend || 0));
+
+      return sorted.slice(0, 5).map((d: any) => ({
+        id: d.campaign_id,
+        name: d.campaign_name,
+        objective: d.objective || '—',
+        status: 'live', // insights não trazem effective_status por padrão a menos que configurado, mockamos 'live' para as top atuantes.
+        spend: Number(d.spend || 0)
+      }));
+    },
+  });
+
+  // Alertas dinâmicos (por hora mockados do BD para mostrar UI, futuramente Meta)
   const { data: alerts } = useQuery({
     queryKey: ['active-alerts'],
     queryFn: async () => {
@@ -84,26 +113,15 @@ export default function DashboardPage() {
     },
   });
 
-  // Top campanhas
-  const { data: topCampaigns } = useQuery({
-    queryKey: ['top-campaigns', selectedClientId],
-    queryFn: async () => {
-      let query = supabase.from('campaigns').select('*').eq('status', 'active').limit(5);
-      if (selectedClientId) query = query.eq('client_id', selectedClientId);
-      const { data } = await query;
-      return data || [];
-    },
-  });
-
   const cards = [
-    { label: 'Investimento', value: formatCurrency(metrics?.spend || 0), icon: DollarSign },
-    { label: 'Impressões', value: formatNumber(metrics?.impressions || 0), icon: Eye },
-    { label: 'Cliques', value: formatNumber(metrics?.clicks || 0), icon: MousePointer },
-    { label: 'CTR', value: formatPercent(metrics?.ctr || 0), icon: Target },
+    { label: 'Investimento Meta', value: formatCurrency(metrics?.spend || 0), icon: DollarSign },
+    { label: 'Impressões Livres', value: formatNumber(metrics?.impressions || 0), icon: Eye },
+    { label: 'Cliques (All)', value: formatNumber(metrics?.clicks || 0), icon: MousePointer },
+    { label: 'CTR Real', value: formatPercent(metrics?.ctr || 0), icon: Target },
     { label: 'CPC', value: formatCurrency(metrics?.cpc || 0), icon: BarChart3 },
     { label: 'CPM', value: formatCurrency(metrics?.cpm || 0), icon: BarChart3 },
-    { label: 'Resultados', value: formatNumber(metrics?.results || 0), icon: TrendingUp },
-    { label: 'ROAS', value: (metrics?.roas || 0).toFixed(2) + 'x', icon: TrendingUp },
+    { label: 'Resultados (Clicks/Purch)', value: formatNumber(metrics?.results || 0), icon: TrendingUp },
+    { label: 'ROAS Global', value: (metrics?.roas || 0).toFixed(2) + 'x', icon: TrendingUp },
   ];
 
   const severityColor: Record<string, string> = {
@@ -112,20 +130,49 @@ export default function DashboardPage() {
     positive: 'bg-success/20 text-success',
   };
 
+  if (isMetaLoading) {
+    return <div className="p-12 text-center text-muted-foreground">Carregando permissões do Meta...</div>;
+  }
+
+  if (!hasMetaSetup) {
+    return (
+      <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
+        <div className="rounded-full bg-secondary p-6 mb-4">
+          <SettingsIcon className="h-10 w-10 text-muted-foreground" />
+        </div>
+        <h2 className="text-xl font-bold mb-2 text-foreground">Configuração Incompleta</h2>
+        <p className="text-muted-foreground max-w-md mb-6">
+          Para ver os insights ao vivo do Facebook, precisamos que você vincule seu Access Token e selecione a conta principal nas configurações.
+        </p>
+        <Link to="/settings">
+          <Button>Configurar Agora</Button>
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 p-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+    <div className="space-y-6 p-6 pb-20">
+      <div className="flex items-center justify-between">
+         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+         <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 rounded-full bg-success"></span>
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Live Meta Data</span>
+         </div>
+      </div>
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {cards.map((c) => (
-          <Card key={c.label} className="bg-card border-border">
+          <Card key={c.label} className="bg-card border-border shadow-sm">
             <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-muted-foreground">
+              <div className="flex items-center gap-2 text-muted-foreground mb-1">
                 <c.icon className="h-4 w-4" />
-                <span className="text-xs">{c.label}</span>
+                <span className="text-[11px] uppercase tracking-wider font-semibold">{c.label}</span>
               </div>
-              <p className="mt-2 text-2xl font-bold text-foreground">{c.value}</p>
+              <p className="text-2xl font-bold text-foreground">
+                {isMetricsLoading ? '...' : c.value}
+              </p>
             </CardContent>
           </Card>
         ))}
@@ -133,9 +180,9 @@ export default function DashboardPage() {
 
       {/* Chart + Alerts */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="bg-card border-border lg:col-span-2">
+        <Card className="bg-card border-border lg:col-span-2 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Investimento por dia</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Investimento por dia (Graph API)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[250px]">
@@ -144,77 +191,99 @@ export default function DashboardPage() {
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(224, 76%, 48%)" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(224, 76%, 48%)" stopOpacity={0} />
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 16%)" />
-                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(0, 0%, 55%)' }} />
-                    <YAxis tick={{ fontSize: 10, fill: 'hsl(0, 0%, 55%)' }} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: 'hsl(0, 0%, 10%)', border: '1px solid hsl(0, 0%, 16%)', borderRadius: 8 }}
-                      labelStyle={{ color: 'hsl(0, 0%, 95%)' }}
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis 
+                       dataKey="date" 
+                       tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
+                       tickFormatter={(str) => {
+                          const [y, m, d] = str.split('-');
+                          return `${d}/${m}`;
+                       }}
+                       axisLine={false}
+                       tickLine={false}
                     />
-                    <Area type="monotone" dataKey="spend" stroke="hsl(224, 76%, 48%)" fill="url(#spendGrad)" strokeWidth={2} />
+                    <YAxis 
+                       tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
+                       axisLine={false}
+                       tickLine={false}
+                       tickFormatter={(val) => `R$${val}`}
+                    />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8 }}
+                      labelStyle={{ color: 'hsl(var(--foreground))' }}
+                    />
+                    <Area type="monotone" dataKey="spend" stroke="hsl(var(--primary))" fill="url(#spendGrad)" strokeWidth={2} />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  Nenhum dado disponível
+                  Nenhum dado trafegado no período
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="bg-card border-border shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" /> Alertas Ativos
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3 pt-2">
             {alerts && alerts.length > 0 ? alerts.map((a: any) => (
-              <div key={a.id} className="flex items-start gap-2 rounded-lg bg-secondary p-2">
-                <Badge className={severityColor[a.severity] || 'bg-secondary'} variant="secondary">
-                  {a.severity}
-                </Badge>
-                <span className="text-xs text-foreground">{a.message}</span>
+              <div key={a.id} className="flex flex-col gap-1 rounded-lg bg-secondary/50 border border-border p-3">
+                <div className="flex justify-between items-start">
+                  <Badge className={severityColor[a.severity] || 'bg-secondary'} variant="secondary">
+                    {a.severity}
+                  </Badge>
+                </div>
+                <span className="text-xs text-foreground mt-1 leading-relaxed">{a.message}</span>
               </div>
             )) : (
-              <p className="text-sm text-muted-foreground">Nenhum alerta ativo</p>
+              <div className="py-10 text-center flex flex-col items-center">
+                 <div className="h-8 w-8 rounded-full bg-success/10 flex items-center justify-center mb-2">
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                 </div>
+                 <p className="text-sm text-muted-foreground font-medium">Tudo tranquilo!</p>
+                 <p className="text-xs text-muted-foreground">Nenhum alerta crítico encontrado.</p>
+              </div>
             )}
           </CardContent>
         </Card>
       </div>
 
       {/* Top campanhas */}
-      <Card className="bg-card border-border">
+      <Card className="bg-card border-border shadow-sm">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Top Campanhas</CardTitle>
+          <CardTitle className="text-sm font-medium text-muted-foreground">Top Campanhas Mais Investidas (Via Graph API)</CardTitle>
         </CardHeader>
         <CardContent>
           {topCampaigns && topCampaigns.length > 0 ? (
             <div className="space-y-2">
               {topCampaigns.map((c: any) => (
-                <Link
+                <div
                   key={c.id}
-                  to={`/campaigns/${c.id}/adsets`}
-                  className="flex items-center justify-between rounded-lg bg-secondary p-3 transition-colors hover:bg-secondary/80"
+                  className="flex items-center justify-between rounded-lg bg-secondary/30 border border-transparent hover:border-border p-3 transition-colors"
                 >
                   <div>
                     <p className="text-sm font-medium text-foreground">{c.name}</p>
-                    <p className="text-xs text-muted-foreground">{c.objective || 'Sem objetivo'}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Gasto: {formatCurrency(c.spend)}</p>
                   </div>
-                  <Badge variant="outline" className="text-xs">{c.status}</Badge>
-                </Link>
+                  <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/20">{c.status}</Badge>
+                </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Nenhuma campanha encontrada</p>
+            <p className="text-sm text-muted-foreground">Nenhuma campanha encontrada trafegando grana no período.</p>
           )}
         </CardContent>
       </Card>
     </div>
   );
 }
+

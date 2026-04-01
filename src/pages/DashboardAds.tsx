@@ -10,13 +10,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // Icons
 import {
   TrendingUp, TrendingDown, Settings as SettingsIcon, AlertCircle, 
   Lightbulb, ArrowRight, Target, MousePointer, Eye,
   RefreshCw, BarChart, Trophy, Flame, AlertTriangle, ShieldCheck,
-  Filter as FilterIcon, Sparkles as SparklesIcon, ImageIcon
+  Filter as FilterIcon, Sparkles as SparklesIcon, ImageIcon, ExternalLink
 } from 'lucide-react';
 
 import { Link } from 'react-router-dom';
@@ -38,7 +40,6 @@ const STRINGS = {
   txtWorstAds: "Sangria no Orçamento (Piores)",
   txtEmptyData: "Não há tráfego rodando neste período exato para popular todo o funil.",
   
-  // Base Padrão de Insights Dinâmicos
   isCritCtrLow: "O criativo não está parando o dedo da audiência.",
   isCritCtrLowAction: "Testar novo criativo com gancho (hook) forte nos primeiros 3s.",
   isOppCtrHigh: "O tráfego está barato e engajado.",
@@ -54,22 +55,12 @@ const STRINGS = {
 const BENCHMARKS = {
   ctr: 1.5,
   cpc: 2.0,
-  conversao: 5 // 5% de conversão base para greenlight
+  conversao: 5 
 };
 
 // ==========================================
 // HELPERS
 // ==========================================
-function getPreviousPeriod(from: Date, to: Date) {
-  const diff = Math.max(differenceInDays(to, from), 0);
-  const prevTo = subDays(from, 1);
-  const prevFrom = subDays(prevTo, diff);
-  return {
-    from: prevFrom.toISOString().split('T')[0],
-    to: prevTo.toISOString().split('T')[0]
-  };
-}
-
 function calcVariation(current: number, prev: number) {
   if (prev === 0) return current > 0 ? 100 : 0;
   return ((current - prev) / prev) * 100;
@@ -89,7 +80,7 @@ function KpiCard({ title, value, varPct, invertGood = false }: any) {
       <CardContent className="p-4">
         <p className="text-[11px] font-bold uppercase text-muted-foreground tracking-wider mb-2">{title}</p>
         <div className="flex items-end justify-between">
-          <h3 className="text-xl lg:text-2xl font-black text-foreground">{value}</h3>
+          <h3 className="text-xl lg:text-2xl font-black text-foreground tracking-tight">{value}</h3>
           {(varPct !== 0 && varPct !== Infinity && !isNaN(varPct)) && (
             <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${isGood ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
                <Icon className="h-3 w-3" />
@@ -106,7 +97,7 @@ function InsightItem({ type, title, message, action }: any) {
   const colors = {
     critical: 'border-l-destructive bg-destructive/5 text-destructive-foreground',
     attention: 'border-l-warning bg-warning/5 text-warning',
-    opportunity: 'border-l-success bg-success/5 text-success' // Success em vez de primary para dar contraste positivo
+    opportunity: 'border-l-success bg-success/5 text-success'
   };
   const icons = {
     critical: <AlertTriangle className="h-5 w-5 text-destructive mr-2 flex-shrink-0" />,
@@ -129,19 +120,21 @@ function InsightItem({ type, title, message, action }: any) {
 // ==========================================
 // PÁGINA PRINCIPAL
 // ==========================================
-
 export default function DashboardPage() {
-  const { dateRange, period, setPeriod } = useFilters();
+  const { dateRange, prevDateRange } = useFilters();
   const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading } = useMetaContext();
 
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
+  const [selectedAdModal, setSelectedAdModal] = useState<any>(null); // Triggers Ad Preview Modal
 
   const currFromStr = dateRange.from.toISOString().split('T')[0];
   const currToStr = dateRange.to.toISOString().split('T')[0];
   const currTimeRangeJSON = JSON.stringify({ since: currFromStr, until: currToStr });
 
-  const prevDates = getPreviousPeriod(dateRange.from, dateRange.to);
-  const prevTimeRangeJSON = JSON.stringify({ since: prevDates.from, until: prevDates.to });
+  const prevTimeRangeJSON = JSON.stringify({ 
+      since: prevDateRange.from.toISOString().split('T')[0], 
+      until: prevDateRange.to.toISOString().split('T')[0] 
+  });
 
   // 1. LISTA DE CAMPANHAS
   const { data: campaignList } = useQuery({
@@ -173,7 +166,7 @@ export default function DashboardPage() {
   // 3. MÉTRICAS (ANTERIOR) PARA COMPARAÇÃO
   const prevQueryParams = { ...queryParams, time_range: prevTimeRangeJSON };
   const { data: prevMetrics } = useQuery({
-    queryKey: ['meta-dash-prev', accountId, selectedCampaignId, prevDates.from, prevDates.to],
+    queryKey: ['meta-dash-prev', accountId, selectedCampaignId, prevDateRange.from.toISOString(), prevDateRange.to.toISOString()],
     enabled: hasMetaSetup,
     queryFn: async () => {
       const res = await insights_custom(token, accountId, prevQueryParams as any);
@@ -183,7 +176,7 @@ export default function DashboardPage() {
     }
   });
 
-  // 4. RANKING CRIATIVOS COM THUMBNAIL META API
+  // 4. RANKING CRIATIVOS COM ENRIQUECIMENTO DE MODAL
   const rankingParams = selectedCampaignId === 'all' ? 
     { level: 'ad', fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 } 
     : 
@@ -200,7 +193,7 @@ export default function DashboardPage() {
             ...parseMetricsObject(d),
             ad_id: d.ad_id,
             ad_name: d.ad_name,
-            thumbnail_url: null // popularemos logo em seguida para os tops
+            creativeDetails: null // Preenchido no Promise.all
          };
       }).filter((m: any) => m.spend > 0);
 
@@ -213,25 +206,25 @@ export default function DashboardPage() {
       const avgCpa = sorted.length ? sorted.reduce((sum: number, c: any) => sum + (c.results>0 ? c.spend/c.results : 0), 0) / sorted.filter((c:any)=>c.results>0).length : 0;
 
       const best = sorted.slice(0, 3);
-      const worst = sorted.slice(-3).reverse(); // inverte para mostrar o mais crítico primeiro dependendo de como quer ler
+      const worst = sorted.slice(-3).reverse(); 
 
-      // Buscar thumbnails atrelando à API gráfica específica do AD
-      async function fetchThumbs(adsList: any[]) {
+      // Buscar detalhes aprofundados para os modais
+      async function enrichAds(adsList: any[]) {
         return Promise.all(adsList.map(async (ad: any) => {
            try {
               if (!ad.ad_id) return ad;
               const adInfo = await obter_criativo_do_anuncio(token, ad.ad_id);
-              ad.thumbnail_url = adInfo?.creative?.thumbnail_url || adInfo?.creative?.image_url || null;
+              ad.creativeDetails = adInfo?.creative || null;
            } catch {
-              // ignora erro silencioso de permissão restrita para thumbnails
+              // ignora erro silencioso
            }
            return ad;
         }));
       }
 
       return {
-        best: await fetchThumbs(best),
-        worst: await fetchThumbs(worst),
+        best: await enrichAds(best),
+        worst: await enrichAds(worst),
         medianCpa: isNaN(avgCpa) ? 0 : avgCpa
       };
     }
@@ -333,17 +326,8 @@ export default function DashboardPage() {
         
         <div className="flex flex-wrap items-center justify-end gap-2.5 w-full xl:w-auto">
           
-          {/* Seletor de Datas custom */}
-          <Select value={period} onValueChange={setPeriod as any}>
-            <SelectTrigger className="w-[140px] h-9 bg-secondary/50 font-bold text-xs ring-offset-background border-none focus:ring-primary/50">
-              <SelectValue placeholder="Data da Análise" />
-            </SelectTrigger>
-            <SelectContent className="font-semibold text-xs border-border">
-              <SelectItem value="7d">Últimos 7 dias</SelectItem>
-              <SelectItem value="30d">Últimos 30 dias</SelectItem>
-              <SelectItem value="90d">Últimos 90 dias</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* O NOVO DATE-RANGE PICKER COMPLETO */}
+          <DateRangePicker />
 
           {/* Seletor de Campanhas Dinâmico */}
           <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
@@ -358,7 +342,7 @@ export default function DashboardPage() {
             </SelectContent>
           </Select>
 
-          <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 hover:scale-105 transition-transform active:scale-95 text-xs px-3" onClick={() => refetch()} disabled={isMetricsLoading}>
+          <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 hover:scale-[1.03] transition-transform active:scale-95 text-xs px-3" onClick={() => refetch()} disabled={isMetricsLoading}>
             <RefreshCw className={`w-3.5 h-3.5 ${isMetricsLoading ? 'animate-spin' : ''}`} /> {STRINGS.btnUpdate}
           </Button>
 
@@ -456,7 +440,7 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* RANKING COM THUMBNAILS (GALERIA) */}
+            {/* RANKING PREMIUM + INTERATIVIDADE HOVER/CLICK */}
             <div className="pt-2">
               <h2 className="text-[10px] font-black uppercase text-foreground/50 tracking-widest flex items-center gap-1.5 mb-3">
                 <Flame className="w-3 h-3 text-orange-500" /> {STRINGS.titleCreatives}
@@ -465,69 +449,90 @@ export default function DashboardPage() {
               <div className="grid md:grid-cols-2 gap-4">
                 
                 {/* CAIXA DE MELHORES */}
-                <Card className="bg-success/5 border-success/30 shadow-sm transition-transform hover:shadow-md hover:border-success/50 relative overflow-hidden group">
-                  <div className="absolute -right-10 -top-10 text-success opacity-5 pointer-events-none transform group-hover:scale-110 transition-transform"><Trophy className="w-40 h-40" /></div>
+                <Card className="bg-success/5 border-success/30 shadow-sm relative overflow-hidden group">
+                  <div className="absolute -right-10 -top-10 text-success opacity-5 pointer-events-none"><Trophy className="w-40 h-40" /></div>
                   <CardContent className="p-4 relative z-10 flex flex-col h-full">
                     <h3 className="text-[11px] font-black uppercase text-success mb-4 flex items-center gap-1.5 opacity-90 tracking-wider">
                        <ArrowRight className="w-3.5 h-3.5 -rotate-45" /> {STRINGS.txtBestAds}
                     </h3>
                     
                     <div className="space-y-2 flex-grow">
-                      {creativeRanking?.best?.length ? creativeRanking.best.map((ad:any, i:number) => (
-                        <div key={i} className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-success/20 items-center hover:bg-background transition-colors shadow-sm">
-                           
-                           {/* Mini-Thumb do Meta */}
-                           <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 relative">
-                              {ad.thumbnail_url ? 
-                                 <img src={ad.thumbnail_url} className="w-full h-full object-cover" alt="Ad thumb" /> 
-                                 : 
-                                 <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />
-                              }
-                           </div>
+                      {creativeRanking?.best?.length ? creativeRanking.best.map((ad:any, i:number) => {
+                         const thumbSource = ad.creativeDetails?.thumbnail_url || ad.creativeDetails?.image_url;
+                         return (
+                           <div 
+                             key={i} 
+                             onClick={() => setSelectedAdModal({...ad, rank: 'best'})}
+                             className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-success/20 items-center hover:bg-background transition-all hover:scale-[1.03] hover:shadow-[0_8px_20px_rgba(0,0,0,0.15)] cursor-pointer shadow-sm relative group/ad"
+                           >
+                              
+                              {/* Hover tooltip stats */}
+                              <div className="absolute right-2 top-2 opacity-0 group-hover/ad:opacity-100 transition-opacity bg-background/95 backdrop-blur px-2 py-1 rounded shadow text-[9px] font-mono text-muted-foreground border border-border z-10">
+                                CTR: {formatPercent(ad.ctr)} | CPC: {formatCurrency(ad.cpc)}
+                              </div>
 
-                           <div className="flex-1 min-w-0">
-                               <p className="text-xs font-bold truncate text-foreground/90">{ad.ad_name}</p>
-                               <div className="flex justify-between items-center mt-1.5">
-                                  <span className="text-[10px] font-mono text-muted-foreground font-semibold">CPA {formatCurrency(ad.results>0 ? ad.spend/ad.results : ad.spend)}</span>
-                                  <Badge variant="default" className="bg-success hover:bg-success text-[9px] px-1.5 py-0 shadow-sm">{ad.results} cap</Badge>
-                               </div>
+                              {/* Mini-Thumb do Meta */}
+                              <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 relative">
+                                 {thumbSource ? 
+                                    <img src={thumbSource} className="w-full h-full object-cover" alt="Ad thumb" /> 
+                                    : <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />
+                                 }
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                  {/* Tooltip nativo longo cortado no ellipsis */}
+                                  <p className="text-xs font-bold truncate text-foreground/90" title={ad.ad_name}>{ad.ad_name}</p>
+                                  <div className="flex justify-between items-center mt-1.5">
+                                     <span className="text-[10px] font-mono text-muted-foreground font-semibold">CPA {formatCurrency(ad.results>0 ? ad.spend/ad.results : ad.spend)}</span>
+                                     <Badge variant="default" className="bg-success hover:bg-success text-[9px] px-1.5 py-0 shadow-sm">{ad.results} cap</Badge>
+                                  </div>
+                              </div>
                            </div>
-                        </div>
-                      )) : <p className="text-xs text-muted-foreground italic text-center p-4">Aguardando performance escalar.</p>}
+                         );
+                      }) : <p className="text-xs text-muted-foreground italic text-center p-4">Aguardando performance escalar.</p>}
                     </div>
                   </CardContent>
                 </Card>
 
                 {/* CAIXA DE PIORES */}
-                <Card className="bg-destructive/5 border-destructive/30 shadow-sm transition-transform hover:shadow-md hover:border-destructive/50 relative overflow-hidden group">
-                  <div className="absolute -right-6 -bottom-6 text-destructive opacity-5 pointer-events-none transform group-hover:-rotate-12 transition-transform"><AlertTriangle className="w-32 h-32" /></div>
+                <Card className="bg-destructive/5 border-destructive/30 shadow-sm relative overflow-hidden group">
+                  <div className="absolute -right-6 -bottom-6 text-destructive opacity-5 pointer-events-none"><AlertTriangle className="w-32 h-32" /></div>
                   <CardContent className="p-4 relative z-10 flex flex-col h-full">
                     <h3 className="text-[11px] font-black uppercase text-destructive mb-4 flex items-center gap-1.5 opacity-90 tracking-wider">
                        <TrendingDown className="w-3.5 h-3.5" /> {STRINGS.txtWorstAds}
                     </h3>
                     
                     <div className="space-y-2 flex-grow">
-                      {creativeRanking?.worst?.length ? creativeRanking.worst.map((ad:any, i:number) => (
-                        <div key={i} className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-destructive/20 items-center hover:bg-background transition-colors shadow-sm opacity-90">
-                           
-                           {/* Mini-Thumb do Meta */}
-                           <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 grayscale hover:grayscale-0 transition-all">
-                              {ad.thumbnail_url ? 
-                                 <img src={ad.thumbnail_url} className="w-full h-full object-cover" alt="Ad thumb" /> 
-                                 : 
-                                 <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />
-                              }
-                           </div>
+                      {creativeRanking?.worst?.length ? creativeRanking.worst.map((ad:any, i:number) => {
+                         const thumbSource = ad.creativeDetails?.thumbnail_url || ad.creativeDetails?.image_url;
+                         return (
+                           <div 
+                             key={i} 
+                             onClick={() => setSelectedAdModal({...ad, rank: 'worst'})}
+                             className="flex gap-3 bg-background/80 p-2.5 rounded-lg border border-destructive/20 items-center transition-all hover:bg-background hover:scale-[1.03] hover:shadow-[0_8px_20px_rgba(0,0,0,0.15)] cursor-pointer shadow-sm relative group/ad"
+                           >
+                              {/* Hover tooltip stats */}
+                              <div className="absolute right-2 top-2 opacity-0 group-hover/ad:opacity-100 transition-opacity bg-background/95 backdrop-blur px-2 py-1 rounded shadow text-[9px] font-mono text-muted-foreground border border-border z-10 pointer-events-none">
+                                CTR: {formatPercent(ad.ctr)} | CPC: {formatCurrency(ad.cpc)}
+                              </div>
 
-                           <div className="flex-1 min-w-0">
-                               <p className="text-xs font-bold truncate text-foreground/90">{ad.ad_name}</p>
-                               <div className="flex justify-between items-center mt-1.5">
-                                  <span className="text-[10px] font-mono text-destructive/80 font-semibold">Gasto Lixo {formatCurrency(ad.spend)}</span>
-                                  <Badge variant="destructive" className="bg-destructive/80 text-[9px] px-1.5 py-0 shadow-sm">{ad.results} cap</Badge>
-                               </div>
+                              <div className="w-12 h-12 bg-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border border-border/50 grayscale group-hover/ad:grayscale-0 transition-all">
+                                 {thumbSource ? 
+                                    <img src={thumbSource} className="w-full h-full object-cover" alt="Ad thumb" /> 
+                                    : <ImageIcon className="w-4 h-4 text-muted-foreground opacity-50" />
+                                 }
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-bold truncate text-foreground/90" title={ad.ad_name}>{ad.ad_name}</p>
+                                  <div className="flex justify-between items-center mt-1.5">
+                                     <span className="text-[10px] font-mono text-destructive/80 font-semibold">Gasto Lixo {formatCurrency(ad.spend)}</span>
+                                     <Badge variant="destructive" className="bg-destructive/80 text-[9px] px-1.5 py-0 shadow-sm">{ad.results} cap</Badge>
+                                  </div>
+                              </div>
                            </div>
-                        </div>
-                      )) : <p className="text-xs text-muted-foreground italic text-center p-4">Não há ads ruins em detecção.</p>}
+                         );
+                      }) : <p className="text-xs text-muted-foreground italic text-center p-4">Não há ads ruins em detecção.</p>}
                     </div>
                   </CardContent>
                 </Card>
@@ -548,7 +553,7 @@ export default function DashboardPage() {
                  
                  <div className="p-4 bg-primary/5 border-b border-primary/10 text-[11px] text-muted-foreground font-semibold flex items-start gap-2 leading-relaxed tracking-wide">
                    <div className="bg-primary/20 rounded-full w-2 h-2 mt-1.5 shadow-[0_0_8px_rgba(var(--primary),0.8)] animate-pulse flex-shrink-0"></div> 
-                   <span>A inteligência local varreu as {m.spend > 0 ? "métricas desta conta" : "entidades dormentes"} em {new Date().toLocaleTimeString('pt-BR')} sob o framework AIB.</span>
+                   <span>A Inteligência Diagnóstica aplicou o framework comparando o período base: ({currFromStr} vs {prevDateRange.from.toISOString().split('T')[0]}).</span>
                  </div>
                  
                  <div className="p-4 space-y-3 flex-1 overflow-y-auto max-h-[600px] lg:max-h-none scrollbar-thin">
@@ -563,21 +568,99 @@ export default function DashboardPage() {
                    ))}
                  </div>
                  
-                 <div className="p-4 border-t border-border bg-card/80 backdrop-blur pb-4 lg:pb-6">
-                   <Link to="/insights">
-                      <Button variant="default" className="w-full text-xs font-black uppercase tracking-wider h-11 rounded-lg shrink shadow-lg shadow-primary/20 flex items-center gap-2 hover:scale-[1.02] transition-transform active:scale-95">
-                         <SparklesIcon className="w-4 h-4 text-orange-300" /> Ir para Claude Central
-                      </Button>
-                   </Link>
-                   <p className="text-center text-[9px] text-muted-foreground mt-2 font-bold opacity-60 uppercase">O processamento profundo exige tokens</p>
-                 </div>
-
               </CardContent>
             </Card>
           </div>
-
         </div>
       </div>
+
+      {/* =========================================
+          AD PREVIEW MODAL (RAIO-X DO CRIATIVO)
+          ========================================= */}
+      <Dialog open={!!selectedAdModal} onOpenChange={(o) => (!o && setSelectedAdModal(null))}>
+         <DialogContent className="max-w-2xl bg-card border-border shadow-2xl p-0 gap-0 overflow-hidden mt-[5vh]">
+             {selectedAdModal && (() => {
+               const ad = selectedAdModal;
+               const c = ad.creativeDetails || {};
+               const thumb = c.thumbnail_url || c.image_url;
+               const rankColor = ad.rank === 'best' ? 'text-success bg-success/10 border-success/30' : 'text-destructive bg-destructive/10 border-destructive/30';
+               const rankIcon = ad.rank === 'best' ? <Trophy className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />;
+
+               return (
+                 <div className="flex flex-col md:flex-row h-full max-h-[80vh]">
+                    
+                    {/* Imagem Lateral */}
+                    <div className="md:w-5/12 bg-secondary/30 flex items-center justify-center border-r border-border p-6 align-middle relative">
+                       {thumb ? 
+                         <img src={thumb} className="w-full max-h-[300px] md:max-h-full object-contain drop-shadow-lg rounded-md" alt="Preview"/> 
+                         : 
+                         <div className="text-center text-muted-foreground opacity-50 flex flex-col items-center gap-2">
+                           <ImageIcon className="w-12 h-12 mx-auto" />
+                           <p className="text-xs">Mídia indisponível na API</p>
+                         </div>
+                       }
+                       <div className="absolute top-4 left-4 flex gap-2">
+                          {c.call_to_action_type && (
+                             <Badge className="bg-primary/80 backdrop-blur shadow">{c.call_to_action_type.replace(/_/g, ' ')}</Badge>
+                          )}
+                       </div>
+                    </div>
+
+                    {/* Dados Diagnósticos */}
+                    <div className="md:w-7/12 flex flex-col bg-background relative">
+                        <DialogHeader className="p-6 border-b border-border pb-4">
+                           <DialogTitle className="text-lg font-black leading-tight flex items-start gap-2 pr-4">
+                             {ad.ad_name}
+                           </DialogTitle>
+                           <p className="text-[10px] text-muted-foreground font-mono mt-1">ID: {ad.ad_id}</p>
+                        </DialogHeader>
+
+                        <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                           
+                           {/* Placar Analítico */}
+                           <div className={`p-4 rounded-xl border flex gap-3 ${rankColor}`}>
+                              {rankIcon}
+                              <div>
+                                 <h4 className="text-sm font-bold opacity-90">Diagnóstico do Algoritmo</h4>
+                                 <p className="text-xs opacity-80 mt-1">
+                                   Este criativo está performando <b>{ad.rank === 'best' ? 'acima' : 'abaixo'} da média</b> do seu portfólio.
+                                   O custo de conversão é de <span className="font-bold underline decoration-current underline-offset-2">{formatCurrency(ad.cpa)}</span>, enquanto a média da conta está em {formatCurrency(creativeRanking?.medianCpa || 0)}.
+                                 </p>
+                              </div>
+                           </div>
+
+                           {/* Copy (Texto Principal) */}
+                           <div className="space-y-2">
+                             <h4 className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Copy / Conteúdo Principal</h4>
+                             <div className="text-sm text-foreground/90 whitespace-pre-wrap bg-secondary/20 p-4 rounded-lg border border-border/50 text-left leading-relaxed">
+                                {c.body || c.title || <span className="italic opacity-50">Não especificado na extração de API.</span>}
+                             </div>
+                           </div>
+
+                           {/* Métricas Drill-down */}
+                           <div className="grid grid-cols-3 gap-3">
+                              <div className="p-3 bg-secondary/10 rounded-lg border border-border/50 text-center">
+                                 <p className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Custo (CPM)</p>
+                                 <p className="text-sm font-mono font-bold text-foreground">{formatCurrency(ad.cpm)}</p>
+                              </div>
+                              <div className="p-3 bg-secondary/10 rounded-lg border border-border/50 text-center">
+                                 <p className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Atração (CTR)</p>
+                                 <p className="text-sm font-mono font-bold text-foreground">{formatPercent(ad.ctr)}</p>
+                              </div>
+                              <div className="p-3 bg-secondary/10 rounded-lg border border-border/50 text-center">
+                                 <p className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Gasto (Spend)</p>
+                                 <p className="text-sm font-mono font-bold text-foreground">{formatCurrency(ad.spend)}</p>
+                              </div>
+                           </div>
+
+                        </div>
+                    </div>
+                 </div>
+               );
+             })()}
+         </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

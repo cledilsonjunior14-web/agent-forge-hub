@@ -91,7 +91,7 @@ export async function listar_anuncios(token: string, account_id: string, adset_i
 
 export async function obter_criativo_do_anuncio(token: string, ad_id: string): Promise<any> {
   const result = await fetchMetaApi(`/${ad_id}`, token, {
-    fields: 'creative{id,name,body,image_url,thumbnail_url}',
+    fields: 'creative{id,name,body,title,image_url,thumbnail_url,call_to_action_type}',
   });
   return result;
 }

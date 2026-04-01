@@ -1,28 +1,68 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useMemo } from 'react';
+import { subDays, startOfMonth, startOfToday, endOfYesterday, subMonths, endOfMonth, differenceInDays } from 'date-fns';
 
-export type Period = '7d' | '30d' | '90d';
+export type DateRange = { from: Date; to: Date; label: string };
 
 interface FilterContextType {
-  period: Period;
-  setPeriod: (p: Period) => void;
+  dateRange: DateRange;
+  setDateRange: (range: DateRange) => void;
+  prevDateRange: { from: Date; to: Date };
   selectedClientId: string | null;
   setSelectedClientId: (id: string | null) => void;
-  dateRange: { from: Date; to: Date };
+  setPreset: (preset: 'today' | 'yesterday' | '7d' | '14d' | '30d' | 'this_month' | 'last_month') => void;
 }
 
 const FilterContext = createContext<FilterContextType | undefined>(undefined);
 
 export function FilterProvider({ children }: { children: ReactNode }) {
-  const [period, setPeriod] = useState<Period>('30d');
+  const [dateRange, setDateRange] = useState<DateRange>({
+    from: subDays(startOfToday(), 6),
+    to: startOfToday(),
+    label: 'Últimos 7 dias'
+  });
+  
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
-  const now = new Date();
-  const daysMap: Record<Period, number> = { '7d': 7, '30d': 30, '90d': 90 };
-  const from = new Date(now.getTime() - daysMap[period] * 86400000);
-  const dateRange = { from, to: now };
+  // Calcula período prévio baseando na diff exata do período atual selecionado
+  const prevDateRange = useMemo(() => {
+    const diff = Math.max(differenceInDays(dateRange.to, dateRange.from), 0);
+    const prevTo = subDays(dateRange.from, 1);
+    const prevFrom = subDays(prevTo, diff);
+    return { from: prevFrom, to: prevTo };
+  }, [dateRange]);
+
+  const setPreset = (preset: string) => {
+    const today = startOfToday();
+    const yesterday = endOfYesterday();
+
+    switch (preset) {
+      case 'today':
+        setDateRange({ from: today, to: today, label: 'Hoje' });
+        break;
+      case 'yesterday':
+        setDateRange({ from: subDays(today, 1), to: subDays(today, 1), label: 'Ontem' });
+        break;
+      case '7d':
+        setDateRange({ from: subDays(today, 6), to: today, label: 'Últimos 7 Dias' });
+        break;
+      case '14d':
+        setDateRange({ from: subDays(today, 13), to: today, label: 'Últimos 14 Dias' });
+        break;
+      case '30d':
+        setDateRange({ from: subDays(today, 29), to: today, label: 'Últimos 30 Dias' });
+        break;
+      case 'this_month':
+        setDateRange({ from: startOfMonth(today), to: today, label: 'Este Mês' });
+        break;
+      case 'last_month':
+        const lastM = subMonths(today, 1);
+        setDateRange({ from: startOfMonth(lastM), to: endOfMonth(lastM), label: 'Mês Passado' });
+        break;
+    }
+  };
 
   return (
-    <FilterContext.Provider value={{ period, setPeriod, selectedClientId, setSelectedClientId, dateRange }}>
+    <FilterContext.Provider value={{ dateRange, setDateRange, prevDateRange, selectedClientId, setSelectedClientId, setPreset }}>
       {children}
     </FilterContext.Provider>
   );

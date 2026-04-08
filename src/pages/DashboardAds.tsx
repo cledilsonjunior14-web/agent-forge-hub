@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFilters } from '@/contexts/FilterContext';
 import { useMetaContext } from '@/hooks/useMetaContext';
 import { formatCurrency, formatPercent, formatNumber } from '@/lib/formatters';
@@ -153,6 +153,7 @@ function InsightItem({ type, title, message, action, texts, updateText }: any) {
 }
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient();
   const { dateRange, prevDateRange } = useFilters();
   const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading } = useMetaContext();
 
@@ -224,7 +225,7 @@ export default function DashboardPage() {
 
   queryParams.fields = 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas';
   
-  const { data: currMetrics, isLoading: isMetricsLoading, refetch } = useQuery({
+  const { data: currMetrics, isLoading: isMetricsLoading } = useQuery({
     queryKey: ['meta-dash-curr', accountId, selectedCampaignIds, selectedAdSetId, currFromStr, currToStr],
     enabled: hasMetaSetup,
     queryFn: async () => {
@@ -395,7 +396,7 @@ export default function DashboardPage() {
             </Select>
           )}
 
-          <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 text-xs px-3 min-w-max" onClick={() => refetch()} disabled={isMetricsLoading}>
+          <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 text-xs px-3 min-w-max" onClick={() => queryClient.refetchQueries({ predicate: (q) => typeof q.queryKey[0] === 'string' && q.queryKey[0].startsWith('meta-') })} disabled={isMetricsLoading}>
             <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 ${isMetricsLoading ? 'animate-spin' : ''}`} /> <EditableText value={texts.btnUpdate} onChange={(v:string) => updateText('btnUpdate', v)} />
           </Button>
         </div>

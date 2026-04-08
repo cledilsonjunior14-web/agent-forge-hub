@@ -35,13 +35,30 @@ export const GestaoDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   useEffect(() => {
     const rawClients = localStorage.getItem('aib_clients');
     const rawProjects = localStorage.getItem('aib_projects');
-    const rawTasks = localStorage.getItem('aib_tasks');
+    const storedTasks = localStorage.getItem('aib_tasks');
+    if (storedTasks) {
+      const parsed = JSON.parse(storedTasks).map((t: any) => ({
+         ...t,
+         assignedTo: t.assignedTo || [],
+         checklists: t.checklists || [],
+         comments: t.comments || [],
+         attachments: t.attachments || [],
+         customFields: t.customFields || [],
+         activityLog: t.activityLog || [],
+         tags: t.tags || [],
+         dependencies: t.dependencies || [],
+         linkedTasks: t.linkedTasks || [],
+         timerHistory: t.timerHistory || [],
+         trackedMinutes: t.trackedMinutes || 0,
+         timerRunning: t.timerRunning || false
+      }));
+      setTasks(parsed);
+    }
     const rawForms = localStorage.getItem('aib_forms');
     const rawActs = localStorage.getItem('aib_activities');
 
     if (rawClients) setClients(JSON.parse(rawClients));
     if (rawProjects) setProjects(JSON.parse(rawProjects));
-    if (rawTasks) setTasks(JSON.parse(rawTasks));
     if (rawForms) setForms(JSON.parse(rawForms));
     if (rawActs) setActivities(JSON.parse(rawActs));
   }, []);

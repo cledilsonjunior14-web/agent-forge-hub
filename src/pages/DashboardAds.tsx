@@ -316,7 +316,11 @@ export default function DashboardPage() {
 
   // PARSERS
   function parseMetricsObject(m: any) {
-    const isWpp = m.actions?.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+    const isWpp = m.actions?.find((a: any) => 
+      a.action_type === 'onsite_conversion.messaging_conversation_started_7d' ||
+      a.action_type === 'onsite_conversion.messaging_first_reply' ||
+      a.action_type.includes('message')
+    );
     const isLead = m.actions?.find((a: any) => a.action_type === 'lead');
     const isPurch = m.actions?.find((a: any) => a.action_type === 'offsite_conversion.fb_pixel_purchase');
     const resultAction = isPurch || isLead || isWpp || null;

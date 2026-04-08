@@ -16,6 +16,7 @@ import CreativesPage from '@/pages/CreativesPage';
 import AlertsPage from '@/pages/AlertsPage';
 import InsightsPage from '@/pages/InsightsPage';
 import SettingsPage from '@/pages/SettingsPage';
+import FunisPage from '@/pages/FunisPage';
 import NotFound from '@/pages/NotFound';
 import ListaPage from '@/pages/gestao/ListaPage';
 import KanbanPage from '@/pages/gestao/KanbanPage';
@@ -53,6 +54,7 @@ function App() {
                   <Route element={<ProtectedRoute />}>
                     <Route element={<AppLayout />}>
                       <Route path="/" element={<DashboardPage />} />
+                      <Route path="/funis" element={<FunisPage />} />
                       <Route path="/campaigns" element={<CampaignsPage />} />
                       <Route path="/campaigns/:campaignId/adsets" element={<AdSetsPage />} />
                       <Route path="/adsets/:adSetId/ads" element={<AdsPage />} />

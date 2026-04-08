@@ -1,0 +1,102 @@
+export const demoCampaigns = [
+  {
+    id: 'camp_001',
+    name: 'Toro Burger — Conversões Abril',
+    objective: 'OUTCOME_SALES',
+    status: 'ATIVO',
+    spend: 5840,
+    conversoes: 199,
+    cpa: 14.80,
+    roas: 7.2,
+    ctr: 4.0,
+    cpm: 3.88,
+    impressoes: 95000,
+    cliques: 3800,
+    receita: 42000,
+  },
+  {
+    id: 'camp_002',
+    name: 'Autoescola Junior — Leads WhatsApp',
+    objective: 'OUTCOME_LEADS',
+    status: 'ATIVO',
+    spend: 1803,
+    leads: 127,
+    cpl: 14.20,
+    ctr: 4.0,
+    cpm: 8.50,
+    impressoes: 45000,
+    cliques: 1800,
+  },
+  {
+    id: 'camp_003',
+    name: 'Tellar Soluções — Tráfego Site',
+    objective: 'OUTCOME_TRAFFIC',
+    status: 'ATIVO',
+    spend: 1989,
+    cliques: 2550,
+    ctr: 3.0,
+    cpc: 0.78,
+    cpm: 6.20,
+    impressoes: 85000,
+  },
+  {
+    id: 'camp_004',
+    name: 'Plasfran — Reconhecimento',
+    objective: 'OUTCOME_AWARENESS',
+    status: 'PAUSADO',
+    spend: 10250,
+    alcance: 340000,
+    frequencia: 3.67,
+    cpm: 8.20,
+    impressoes: 1250000,
+  },
+];
+
+export const demoAdSets = [
+  { name: '00 - |auto| Mix de público base', gasto: 17.94, conversoes: 4, cpa: 4.49 },
+  { name: '01 - |auto| AD validados — Cópia', gasto: 10.02, conversoes: 3, cpa: 3.34 },
+  { name: '00 - |auto| AD validados',         gasto: 4.56,  conversoes: 1, cpa: 4.56 },
+];
+
+export const demoCreatives = [
+  { name: 'AD4 - Bacon supreme', cpa: 0.73, conversoes: 1, status: 'escalar'  },
+  { name: 'AD4 - Bacon supreme', cpa: 3.85, conversoes: 1, status: 'escalar'  },
+  { name: 'AD6 - Sem modinha',   cpa: 4.37, conversoes: 1, status: 'escalar'  },
+  { name: 'AD4 - Bacon supreme', lixo: 0.19, conversoes: 0, status: 'pausar' },
+  { name: 'AD6 - Sem modinha',   lixo: 14.89, conversoes: 3, status: 'pausar' },
+  { name: 'AD6 - Sem modinha',   lixo: 9.29,  conversoes: 2, status: 'pausar' },
+];
+
+export const demoDemographics = {
+  porIdadeGenero: [
+    { faixa: '18-24', mulheres: 5.20, homens: 3.80 },
+    { faixa: '25-34', mulheres: 18.40, homens: 14.60 },
+    { faixa: '35-44', mulheres: 7.20, homens: 5.40 },
+    { faixa: '45-54', mulheres: 3.10, homens: 2.80 },
+    { faixa: '55-64', mulheres: 1.20, homens: 0.90 },
+    { faixa: '65+',   mulheres: 0.40, homens: 0.30 },
+  ],
+  posicionamentos: [
+    { name: 'IG Feed',    value: 42, color: '#9B59B6' },
+    { name: 'IG Reels',   value: 31, color: '#00C2FF' },
+    { name: 'FB Feed',    value: 18, color: '#3498DB' },
+    { name: 'IG Explore', value: 9,  color: '#E74C3C' },
+  ],
+  linhaTempo: [
+    { data: '04/02', valor: 2.10 },
+    { data: '04/03', valor: 3.40 },
+    { data: '04/04', valor: 5.80 },
+    { data: '04/05', valor: 18.20 },
+    { data: '04/06', valor: 28.40 },
+    { data: '04/07', valor: 32.52 },
+    { data: '04/08', valor: 4.20 },
+  ],
+  porHorario: [
+    { hora: '15h', valor: 3.20 },
+    { hora: '19h', valor: 8.40 },
+    { hora: '20h', valor: 16.80 },
+    { hora: '21h', valor: 6.20 },
+    { hora: '22h', valor: 3.80 },
+    { hora: '23h', valor: 2.10 },
+  ],
+};

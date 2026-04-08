@@ -10,6 +10,8 @@ interface FilterContextType {
   selectedClientId: string | null;
   setSelectedClientId: (id: string | null) => void;
   setPreset: (preset: 'today' | 'yesterday' | '7d' | '14d' | '30d' | 'this_month' | 'last_month') => void;
+  selectedCampaigns: string[];
+  setSelectedCampaigns: (campaigns: string[] | ((prev: string[]) => string[])) => void;
 }
 
 const FilterContext = createContext<FilterContextType | undefined>(undefined);
@@ -22,6 +24,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   });
   
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
 
   // Calcula período prévio baseando na diff exata do período atual selecionado
   const prevDateRange = useMemo(() => {
@@ -62,7 +65,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <FilterContext.Provider value={{ dateRange, setDateRange, prevDateRange, selectedClientId, setSelectedClientId, setPreset }}>
+    <FilterContext.Provider value={{ dateRange, setDateRange, prevDateRange, selectedClientId, setSelectedClientId, setPreset, selectedCampaigns, setSelectedCampaigns }}>
       {children}
     </FilterContext.Provider>
   );

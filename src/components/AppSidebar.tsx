@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, Megaphone, Image, AlertTriangle, Sparkles, LogOut, Settings as SettingsIcon,
-  ListTodo, Kanban, Calendar, FileText, FormInput, Activity, Users, FolderOpen, Users2, BarChartBig
+  ListTodo, Kanban, Calendar, FileText, FormInput, Activity, Users, FolderOpen, Users2, BarChartBig,
+  Layers, GitBranch, Bell
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,8 +15,9 @@ import { Button } from '@/components/ui/button';
 const navItems = [
   { title: 'Dashboard', url: '/', icon: LayoutDashboard },
   { title: 'Campanhas', url: '/campaigns', icon: Megaphone },
-  { title: 'Criativos', url: '/creatives', icon: Image },
-  { title: 'Alertas', url: '/alerts', icon: AlertTriangle },
+  { title: 'Criativos', url: '/creatives', icon: Layers },
+  { title: 'Funis', url: '/funis', icon: GitBranch },
+  { title: 'Alertas', url: '/alerts', icon: Bell },
   { title: 'Insights IA', url: '/insights', icon: Sparkles },
   { title: 'Configurações', url: '/settings', icon: SettingsIcon },
 ];

@@ -1,194 +1,110 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { Check, ChevronsUpDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useToast } from '@/hooks/use-toast';
-import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Key, Save, Lock, Loader2, CheckCircle2 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { listar_contas, MetaAccount } from '@/services/metaApi';
+import React, { useState } from 'react';
+import { Settings, Link as LinkIcon, AlertCircle, Save, Moon, Sun, ToggleLeft, Key } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const [claudeKey, setClaudeKey] = useState('');
-  const [openaiKey, setOpenaiKey] = useState('');
-
-  // Meta Ads States
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [accessToken, setAccessToken] = useState('');
-
-  useEffect(() => {
-    // Load local keys
-    setClaudeKey(localStorage.getItem('af_claude_key') || '');
-    setOpenaiKey(localStorage.getItem('af_openai_key') || '');
-
-    // Load Meta settings from Supabase
-    async function loadSettings() {
-      if (!user) return;
-      try {
-        const { data, error } = await (supabase as any)
-          .from('user_settings')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (error && error.code !== 'PGRST116') throw error;
-
-        if (data) {
-          setAccessToken(data.meta_access_token || '');
-        }
-      } catch (err: any) {
-        console.error('Erro ao carregar configurações Meta:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadSettings();
-  }, [user]);
-
-
-  const handleSave = async () => {
-    if (claudeKey) localStorage.setItem('af_claude_key', claudeKey);
-    if (openaiKey) localStorage.setItem('af_openai_key', openaiKey);
-
-    if (!user) {
-       toast({ title: 'Configurações locais salvas!' });
-       return;
-    }
-
-    setSaving(true);
-    try {
-      const payload = {
-        user_id: user.id,
-        meta_access_token: accessToken,
-        updated_at: new Date().toISOString()
-      };
-
-      const { data, error } = await (supabase as any)
-        .from('user_settings')
-        .upsert(payload, { onConflict: 'user_id' })
-        .select();
-
-      if (error) {
-        throw error;
-      }
-
-      toast({
-        title: 'Sucesso',
-        description: 'Todas as configurações foram salvas com sucesso!',
-      });
-    } catch (err: any) {
-      console.error('Ops, falha no banco:', err);
-      toast({
-        title: 'Erro ao salvar no banco',
-        description: err.message || 'Verifique se rodou as relativas migrations ou reset no BD local.',
-        variant: 'destructive',
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="p-8 flex items-center justify-center h-full"><Loader2 className="animate-spin w-8 h-8 text-primary" /></div>;
-  }
+  const [token, setToken] = useState('EAAIz...KDJ3');
+  const [themeMode, setThemeMode] = useState('dark');
 
   return (
-    <div className="mx-auto max-w-2xl p-6 lg:p-8 pb-20">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-            <SettingsIcon className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Configurações</h1>
-            <p className="text-xs text-muted-foreground">API keys e integrações do sistema</p>
-          </div>
-        </div>
+    <div className="p-6 md:p-8 max-w-[1000px] mx-auto animate-in fade-in duration-500">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 pb-4 border-b border-border-default">
+         <div>
+            <h2 className="font-heading font-bold text-2xl uppercase tracking-widest text-[#F0F2F7] flex items-center gap-3">
+               <Settings className="w-6 h-6 text-brand-primary" /> Sistema Global
+            </h2>
+            <p className="text-sm text-text-secondary mt-1">Configurações de infraestrutura e metas globais de negócio.</p>
+         </div>
+      </div>
 
-        <div className="space-y-6">
-          {/* Informações da Conta */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h2 className="mb-1 text-sm font-semibold text-foreground">Conta Principal</h2>
-            <p className="mb-4 text-xs text-muted-foreground">Informações da sua conta de acesso</p>
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs text-muted-foreground">Email</Label>
-                <p className="mt-1 font-mono text-sm text-foreground">{user?.email}</p>
-              </div>
+      <div className="space-y-8">
+         {/* Meta Connection */}
+         <div className="card p-6 border-l-4 border-l-brand-primary">
+            <h3 className="font-heading font-bold uppercase tracking-widest mb-6 flex items-center gap-2 text-[#F0F2F7]">
+               <LinkIcon className="w-5 h-5 text-brand-primary" /> Conexão Meta API
+            </h3>
+            <div className="flex items-center justify-between bg-bg-surface border border-border-strong rounded-lg p-5">
+               <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded bg-[#1877F2]/10 flex items-center justify-center">
+                     <span className="font-bold text-[#1877F2]">f</span>
+                  </div>
+                  <div>
+                     <p className="font-bold text-text-primary text-sm">Meta Business Extension</p>
+                     <p className="text-[10px] uppercase font-bold text-[#00E096] tracking-widest mt-1 mr-2 px-2 py-0.5 rounded bg-[#00E096]/10 inline-block">● Conectado Activamente</p>
+                  </div>
+               </div>
+               <button className="text-xs bg-bg-elevated hover:bg-bg-overlay border border-border-default px-4 py-2 rounded font-bold uppercase tracking-widest transition-colors text-text-muted">Desconectar</button>
             </div>
-          </div>
-
-          {/* Meta Ads Integration */}
-          <div className="rounded-xl border border-border bg-card p-5 overflow-visible">
-            <div className="mb-4 flex items-center gap-2">
-              <Lock className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Integração Meta Ads</h2>
-            </div>
-            <p className="mb-4 text-xs text-muted-foreground">
-              Insira seu User Access Token com permissões (ads_read) para habilitar inteligência MCP.
-            </p>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>User Access Token</Label>
-                <div className="flex gap-2">
-                  <Input 
-                    type="password" 
-                    value={accessToken} 
-                    onChange={(e) => setAccessToken(e.target.value)} 
-                    placeholder="EAA..." 
-                    className="bg-secondary font-mono text-sm"
+            
+            <div className="mt-6">
+               <label className="block text-xs uppercase font-bold text-text-muted tracking-wide mb-2 flex items-center gap-2">
+                  <Key className="w-4 h-4"/> System User Token (Definitivo)
+               </label>
+               <div className="flex gap-3">
+                  <input 
+                     type="password" 
+                     value={token}
+                     onChange={(e) => setToken(e.target.value)}
+                     className="flex-1 bg-bg-surface border border-border-strong rounded-lg px-4 py-3 text-sm text-text-primary focus:border-brand-primary focus:ring-1 focus:ring-brand-primary transition-all outline-none" 
                   />
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Salve o token e utilize o seletor de contas diretamente no Dashboard.</p>
-              </div>
+                  <button className="bg-brand-primary hover:bg-brand-primary/90 text-bg-base px-6 py-3 rounded-lg font-bold uppercase tracking-widest text-xs flex items-center gap-2 transition-colors">
+                     <Save className="w-4 h-4" /> Salvar
+                  </button>
+               </div>
             </div>
-          </div>
+         </div>
 
-          {/* External AI APIs */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Key className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Chaves de IA Externas</h2>
+         {/* Objetivos Globais Padrão */}
+         <div className="card p-6">
+            <h3 className="font-heading font-bold uppercase tracking-widest mb-1 text-[#F0F2F7]">Limites Operacionais (Safeguard)</h3>
+            <p className="text-xs text-text-secondary mb-6">Estes valores definem o termômetro de cores do dashboard (Excelente / Estável / Crítico).</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               <div>
+                  <label className="block text-xs font-bold text-text-muted uppercase tracking-widest mb-2">Teto CPA (Vendas)</label>
+                  <div className="relative">
+                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted font-mono">R$</span>
+                     <input type="number" defaultValue="4.50" className="w-full bg-bg-surface border border-border-default rounded-lg pl-10 pr-4 py-3 text-sm font-mono text-text-primary focus:border-brand-primary outline-none" />
+                  </div>
+               </div>
+               <div>
+                  <label className="block text-xs font-bold text-text-muted uppercase tracking-widest mb-2">Teto CPL (Leads)</label>
+                  <div className="relative">
+                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted font-mono">R$</span>
+                     <input type="number" defaultValue="14.00" className="w-full bg-bg-surface border border-border-default rounded-lg pl-10 pr-4 py-3 text-sm font-mono text-text-primary focus:border-brand-primary outline-none" />
+                  </div>
+               </div>
+               <div>
+                  <label className="block text-xs font-bold text-text-muted uppercase tracking-widest mb-2">Piso ROAS (Vendas)</label>
+                  <div className="relative">
+                     <input type="number" defaultValue="3.0" className="w-full bg-bg-surface border border-border-default rounded-lg px-4 py-3 text-sm font-mono text-text-primary focus:border-brand-primary outline-none" />
+                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted font-bold">X</span>
+                  </div>
+               </div>
             </div>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Claude API Key</Label>
-                <Input
-                  type="password"
-                  value={claudeKey}
-                  onChange={(e) => setClaudeKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="bg-secondary font-mono text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>OpenAI API Key (opcional)</Label>
-                <Input
-                  type="password"
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="bg-secondary font-mono text-sm"
-                />
-              </div>
-            </div>
-          </div>
+         </div>
 
-          <Button variant="default" className="w-full sm:w-auto" onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            Salvar Configurações
-          </Button>
-        </div>
-      </motion.div>
+         {/* Visual */}
+         <div className="card p-6 border border-border-subtle bg-bg-surface/50">
+            <h3 className="font-heading font-bold uppercase tracking-widest mb-6 flex items-center gap-2 text-[#F0F2F7]">Preferências de Interface</h3>
+            <div className="flex items-center justify-between p-4 bg-bg-elevated rounded border border-border-default">
+               <div className="flex items-center gap-3">
+                  {themeMode === 'dark' ? <Moon className="w-5 h-5 text-brand-primary" /> : <Sun className="w-5 h-5 text-[#F1C40F]" />}
+                  <div>
+                     <p className="font-bold text-sm text-text-primary">AIB Dark Intelligence (V2)</p>
+                     <p className="text-[10px] text-text-secondary uppercase tracking-wider mt-0.5">Tema padrão forçado via Design System</p>
+                  </div>
+               </div>
+               <div className="flex items-center gap-3 opacity-50 cursor-not-allowed" title="A versão V2 foi focada exclusivamente no formato Dark.">
+                  <ToggleLeft className="w-8 h-8 text-brand-primary shrink-0" />
+                  <span className="text-xs font-bold uppercase tracking-widest text-brand-primary">Ativo</span>
+               </div>
+            </div>
+            <div className="mt-4 flex gap-2 text-xs text-text-muted bg-brand-primary/5 p-3 rounded">
+               <AlertCircle className="w-4 h-4 shrink-0 text-brand-primary" />
+               <span>O tema "Light Mode" foi deprecado nesta versão focada em alta densidade de dados luminosos. Modificações de código são necessárias para reversão.</span>
+            </div>
+         </div>
+      </div>
     </div>
   );
 }

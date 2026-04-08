@@ -1,7 +1,10 @@
-@import '@fontsource-variable/inter';
+@import '@fontsource/dm-sans/400.css';
+@import '@fontsource/dm-sans/500.css';
+@import '@fontsource/dm-sans/600.css';
+@import '@fontsource/syne/700.css';
+@import '@fontsource/syne/800.css';
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
-@import '@fontsource/jetbrains-mono/700.css';
 
 @tailwind base;
 @tailwind components;
@@ -9,53 +12,108 @@
 
 @layer base {
   :root {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 95%;
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 95%;
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 224 76% 48%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 80%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 55%;
-    --accent: 224 76% 48%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 16%;
-    --input: 0 0% 16%;
-    --ring: 224 76% 48%;
-    --radius: 0.5rem;
-    --success: 142 71% 45%;
-    --warning: 38 92% 50%;
-    --info: 199 89% 48%;
-    --sidebar-background: 0 0% 5%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 224 76% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 12%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 0 0% 14%;
-    --sidebar-ring: 224 76% 48%;
-    --chart-1: 224 76% 48%;
-    --chart-2: 142 71% 45%;
-    --chart-3: 38 92% 50%;
-    --chart-4: 199 89% 48%;
-    --chart-5: 0 72% 51%;
+    /* Mapeamento Shadcn para Dark Mode Restrito (Evitando quebra de components nativos) */
+    --background: 223 30% 5%;    /* #080A0F */
+    --foreground: 226 26% 96%;   /* #F0F2F7 */
+    --card: 225 21% 8%;          /* #0F1117 */
+    --card-foreground: 226 26% 96%; 
+    --popover: 222 29% 15%;      /* #1C2333 */
+    --popover-foreground: 226 26% 96%;
+    --primary: 194 100% 50%;     /* #00C2FF */
+    --primary-foreground: 226 26% 96%;
+    --secondary: 224 24% 11%;    /* #161B24 */
+    --secondary-foreground: 226 15% 60%;
+    --muted: 226 17% 35%;        /* #4A5168 */
+    --muted-foreground: 226 17% 65%;
+    --accent: 222 29% 15%;
+    --accent-foreground: 194 100% 50%;
+    --destructive: 0 100% 65%;   /* #FF4D4D */
+    --destructive-foreground: 226 26% 96%;
+    --border: 0 0% 100% / 0.10;
+    --input: 224 24% 11%;
+    --ring: 194 100% 50%;
+    --radius: 0.75rem;
+
+    --success: 160 100% 44%;     /* #00E096 */
+    --warning: 48 89% 50%;       /* #F1C40F */
+    --info: 194 100% 50%;        /* #00C2FF */
+    
+    /* Design System 2.0 Custom Vars */
+    --bg-base:        #080A0F;
+    --bg-surface:     #0F1117;
+    --bg-elevated:    #161B24;
+    --bg-overlay:     #1C2333;
+
+    --border-subtle:  rgba(255,255,255,0.06);
+    --border-default: rgba(255,255,255,0.10);
+    --border-strong:  rgba(255,255,255,0.18);
+
+    --brand-primary:  #00C2FF;
+    --brand-glow:     rgba(0,194,255,0.15);
+
+    --obj-reconhecimento: #9B59B6;
+    --obj-trafego:        #3498DB;
+    --obj-engajamento:    #F1C40F;
+    --obj-leads:          #2ECC71;
+    --obj-app:            #E67E22;
+    --obj-vendas:         #E74C3C;
+
+    --perf-excelente: #00E096;
+    --perf-bom:       #2ECC71;
+    --perf-atencao:   #F1C40F;
+    --perf-critico:   #FF4D4D;
+
+    --text-primary:   #F0F2F7;
+    --text-secondary: #8B92A5;
+    --text-muted:     #4A5168;
+    --text-disabled:  #2D3347;
   }
 }
 
 @layer base {
   * { @apply border-border; }
   body {
-    @apply bg-background text-foreground;
-    font-family: 'Inter Variable', sans-serif;
+    @apply bg-background text-[#F0F2F7];
+    font-family: 'DM Sans', sans-serif;
   }
   code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+  
+  h1, h2, h3, h4, h5, h6, .font-heading {
+    font-family: 'Syne', sans-serif;
+  }
 }
+
+@layer components {
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+  }
+  .card:hover {
+    border-color: var(--border-default);
+    background: var(--bg-elevated);
+    transition: all 0.15s ease;
+  }
+  .card-metric {
+    background: linear-gradient(135deg, var(--bg-surface), var(--bg-elevated));
+    border: 1px solid var(--border-default);
+    position: relative;
+    overflow: hidden;
+  }
+  .card-metric::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--brand-primary), transparent);
+    opacity: 0.4;
+  }
+}
+
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--border-strong); border-radius: 3px; }
 
 .scrollbar-thin { scrollbar-width: thin; scrollbar-color: hsl(var(--border)) transparent; }
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }

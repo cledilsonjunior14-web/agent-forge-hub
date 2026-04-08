@@ -8,7 +8,8 @@ export default {
     container: { center: true, padding: "2rem", screens: { "2xl": "1400px" } },
     extend: {
       fontFamily: {
-        sans: ["Inter Variable", "Inter", "system-ui", "sans-serif"],
+        sans: ["DM Sans", "Inter Variable", "Inter", "system-ui", "sans-serif"],
+        heading: ["Syne", "sans-serif"],
         mono: ["JetBrains Mono", "monospace"],
       },
       colors: {

@@ -51,23 +51,30 @@ function ClaudeCentral() {
 
 function RadarMetrics({ objective }: { objective: string }) {
   const cards = [
-    { label: 'INVESTIMENTO (SPEND)', value: formatCurrency(12450.00), varPct: 12.5, icon: DollarSign, color: 'var(--perf-bom)' },
+    { label: 'INVESTIMENTO (SPEND)', value: formatCurrency(12450.00), varPct: 12.5, icon: DollarSign, color: 'var(--perf-bom)', insight: 'Consumo acelerado nas últimas 4 horas.' },
     { label: 'VOLUME (CONVERSÃO)', value: formatVolume(482), varPct: 45.2, icon: ShoppingCart, color: 'var(--perf-excelente)' },
-    { label: 'CPA GLOBAL', value: formatCurrency(25.83), varPct: -15.4, icon: Target, color: 'var(--perf-bom)' },
+    { label: 'CPA GLOBAL', value: formatCurrency(25.83), varPct: -15.4, icon: Target, color: 'var(--perf-bom)', insight: 'CPA reduziu R$ 4,10 após pausar o criativo em saturação.' },
     { label: 'CTR GERAL (ADS)', value: formatPct(3.8), varPct: -2.1, icon: MousePointerClick, color: 'var(--perf-atencao)' },
-    { label: 'CUSTO REL. (CPM)', value: formatCurrency(8.40), varPct: 5.6, icon: BarChart2, color: 'var(--perf-critico)' },
+    { label: 'CUSTO REL. (CPM)', value: formatCurrency(8.40), varPct: 5.6, icon: BarChart2, color: 'var(--perf-critico)', insight: 'O custo de impressão subiu 12% no período da noite (20h-23h).' },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
       {cards.map((c, i) => (
-        <div key={i} className="card card-metric p-5 animate-in fade-in slide-in-from-bottom-2" style={{ animationDelay: `${i * 40}ms`, borderTopColor: c.color, borderTopWidth: '2px' }}>
-          <div className="flex justify-between items-start mb-4">
-            <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest leading-tight w-2/3">{c.label}</span>
-            <c.icon className="w-4 h-4 text-text-secondary" />
+        <div key={i} className="flex flex-col gap-2">
+          <div className="card card-metric p-5 animate-in fade-in slide-in-from-bottom-2 h-full" style={{ animationDelay: `${i * 40}ms`, borderTopColor: c.color, borderTopWidth: '2px' }}>
+            <div className="flex justify-between items-start mb-4">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest leading-tight w-2/3 break-words">{c.label}</span>
+              <c.icon className="w-4 h-4 shrink-0 text-text-secondary" />
+            </div>
+            <div className="font-heading font-bold text-2xl lg:text-3xl text-text-primary mb-2 line-clamp-1 truncate">{c.value}</div>
+            <BadgeVar pct={c.varPct} />
           </div>
-          <div className="font-heading font-bold text-2xl lg:text-3xl text-text-primary mb-2 line-clamp-1">{c.value}</div>
-          <BadgeVar pct={c.varPct} />
+          {c.insight && (
+             <div className="p-3 bg-bg-surface border border-border-default rounded-b-lg -mt-3 shadow-inner hidden md:block">
+               <p className="text-[10px] sm:text-xs text-text-secondary leading-tight"><strong className="text-brand-primary">💡 Análise:</strong> {c.insight}</p>
+             </div>
+          )}
         </div>
       ))}
     </div>
@@ -353,12 +360,29 @@ function InteligenciaDemografica() {
                     <XAxis dataKey="hora" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
                     <Tooltip cursor={{ fill: 'var(--bg-elevated)' }} contentStyle={{ backgroundColor: 'var(--bg-overlay)', borderColor: 'var(--border-default)', borderRadius: '8px' }} />
-                    <Bar dataKey="valor" fill="#E67E22" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="valor" name="Volume" fill="#E67E22" radius={[4, 4, 0, 0]}>
                        {d.porHorario.map((entry, index) => (
                          <Cell key={`cell-${index}`} fill={entry.valor > 15 ? '#F39C12' : '#E67E22'} className={entry.valor > 15 ? 'stroke-[#F1C40F] stroke-2 drop-shadow-[0_0_10px_rgba(241,196,15,0.5)]' : ''}/>
                        ))}
                     </Bar>
                   </BarChart>
+               </ResponsiveContainer>
+            </div>
+         </div>
+
+         {/* Grafico 5: Custo por Horário */}
+         <div className="bg-bg-surface p-4 rounded-xl border border-border-subtle lg:col-span-2 xl:col-span-1">
+            <h4 className="text-xs uppercase font-bold text-text-muted mb-6 tracking-wide">Custo vs Volatilidade Diária</h4>
+            <div className="h-[250px] w-full">
+               <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={d.custoPorHora} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="hora" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
+                    <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
+                    <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
+                    <Tooltip cursor={{ stroke: 'var(--border-strong)' }} contentStyle={{ backgroundColor: 'var(--bg-overlay)', borderColor: 'var(--border-default)', borderRadius: '8px' }} />
+                    <Line yAxisId="left" type="monotone" name="CPA Médio" dataKey="cpa" stroke="#FF4D4D" strokeWidth={3} dot={{ r: 4, fill: '#FF4D4D', strokeWidth: 0 }} />
+                    <Line yAxisId="right" type="monotone" name="CPM" dataKey="cpm" stroke="#00E096" strokeWidth={3} dot={{ r: 4, fill: '#00E096', strokeWidth: 0 }} />
+                  </LineChart>
                </ResponsiveContainer>
             </div>
          </div>

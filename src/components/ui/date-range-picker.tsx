@@ -49,26 +49,26 @@ export function DateRangePicker() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-9 gap-2 text-xs font-semibold justify-between min-w-[150px] shadow-sm hover:border-primary/50 transition-colors">
-          <span className="flex items-center gap-2 text-foreground/80"><CalendarIcon className="h-3.5 w-3.5" /> {dateRange.label}</span>
+        <Button variant="outline" size="sm" className="h-9 gap-2 text-xs font-semibold justify-between min-w-[150px] shadow-sm bg-bg-surface border-border-default hover:bg-bg-elevated hover:text-text-primary text-text-primary transition-colors">
+          <span className="flex items-center gap-2"><CalendarIcon className="h-3.5 w-3.5" /> {dateRange.label || 'Período'}</span>
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[330px] p-0 shadow-xl border-border/80" align="end">
-        <div className="flex flex-col">
-          <div className="p-3 bg-secondary/10 border-b border-border text-[10px] text-muted-foreground font-black uppercase tracking-wider flex items-center justify-between">
+      <PopoverContent className="w-[330px] p-0 shadow-xl border-border-strong bg-bg-elevated z-50" align="end">
+        <div className="flex flex-col text-text-primary">
+          <div className="p-3 bg-bg-surface border-b border-border-subtle text-[10px] text-text-muted font-black uppercase tracking-wider flex items-center justify-between">
             <span>Intervalo Mestre</span>
-            <span className="text-[9px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">AUTO-COMPARE ATIVO</span>
+            <span className="text-[9px] text-brand-primary bg-brand-primary/10 px-1.5 py-0.5 rounded">AUTO-COMPARE ATIVO</span>
           </div>
 
           <div className="flex">
             {/* Presets List */}
-            <div className="w-[140px] border-r border-border p-1.5 space-y-0.5 bg-secondary/5">
+            <div className="w-[140px] border-r border-border-subtle p-1.5 space-y-0.5 bg-bg-surface/50">
               {presets.map(p => (
                 <div
                   key={p.id}
                   onClick={() => setActivePreset(p.id)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer transition-colors select-none ${activePreset === p.id ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-secondary text-muted-foreground hover:text-foreground'}`}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer transition-colors select-none ${activePreset === p.id ? 'bg-brand-primary text-bg-base shadow-sm' : 'hover:bg-bg-elevated text-text-secondary hover:text-text-primary'}`}
                 >
                   {p.label}
                 </div>
@@ -76,31 +76,31 @@ export function DateRangePicker() {
             </div>
 
             {/* Custom Selector Input */}
-            <div className="flex-1 p-3 flex flex-col justify-center bg-background">
+            <div className="flex-1 p-3 flex flex-col justify-center bg-bg-base">
               {activePreset !== 'custom' ? (
                 <div className="text-center space-y-3">
-                  <CalendarIcon className="w-8 h-8 text-muted-foreground/30 mx-auto" />
-                  <p className="text-[11px] text-muted-foreground px-2 leading-relaxed font-medium">
+                  <CalendarIcon className="w-8 h-8 text-text-muted/30 mx-auto" />
+                  <p className="text-[11px] text-text-secondary px-2 leading-relaxed font-medium">
                     O sistema agregará os KPIs a este bloco fixo e o comparará ao último.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase text-muted-foreground">Data Inicial</label>
-                    <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="w-full h-8 text-xs bg-secondary/30 focus:bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary/40 rounded px-2 outline-none transition-all" />
+                    <label className="text-[10px] font-bold uppercase text-text-muted">Data Inicial</label>
+                    <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="w-full h-8 text-xs bg-bg-surface focus:bg-bg-elevated border border-border-default focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/40 rounded px-2 outline-none transition-all text-text-primary" />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase text-muted-foreground">Data Final</label>
-                    <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="w-full h-8 text-xs bg-secondary/30 focus:bg-background border border-border focus:border-primary focus:ring-1 focus:ring-primary/40 rounded px-2 outline-none transition-all" />
+                    <label className="text-[10px] font-bold uppercase text-text-muted">Data Final</label>
+                    <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="w-full h-8 text-xs bg-bg-surface focus:bg-bg-elevated border border-border-default focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/40 rounded px-2 outline-none transition-all text-text-primary" />
                   </div>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="p-3 border-t border-border bg-secondary/20 flex justify-end">
-            <Button size="sm" onClick={handleApply} className="text-xs h-8 px-6 font-bold shadow hover:scale-105 active:scale-95 transition-all">Aplicar Filtro</Button>
+          <div className="p-3 border-t border-border-subtle bg-bg-surface flex justify-end">
+            <Button size="sm" onClick={handleApply} className="text-xs h-8 px-6 font-bold shadow bg-brand-primary text-bg-base hover:bg-brand-primary/90 hover:scale-105 active:scale-95 transition-all">Aplicar Filtro</Button>
           </div>
         </div>
       </PopoverContent>

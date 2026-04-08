@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/button';
 
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { RefreshCw, Target, CalendarDays, Check } from 'lucide-react';
+import { RefreshCw, Target, CalendarDays, Check, ChevronDown } from 'lucide-react';
 import { demoCampaigns } from '@/services/mockData';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const pageTitleMap: Record<string, { title: string; subtitle?: string }> = {
@@ -68,45 +69,46 @@ function HeaderBar() {
       </div>
 
       <div className="flex items-center gap-3 shrink-0">
-        {/* Seletor de Período Simples */}
+        {/* Ad Account Selector */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="bg-surface border-default h-9 text-xs flex items-center gap-2 font-medium">
-              <CalendarDays className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="hidden sm:inline">{dateRange.label || 'Período'}</span>
+            <Button variant="outline" size="sm" className="bg-bg-surface border-border-default h-9 text-xs flex items-center gap-2 font-medium">
+              <span className="hidden sm:inline">AIB Digital</span>
+              <ChevronDown className="w-3 h-3 opacity-50" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48 bg-elevated border-strong">
-            <DropdownMenuLabel className="text-xs text-muted-foreground uppercase">Período de Análise</DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuCheckboxItem checked={dateRange.label === 'Hoje'} onCheckedChange={() => setPreset('today')}>Hoje</DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem checked={dateRange.label === 'Últimos 7 Dias'} onCheckedChange={() => setPreset('7d')}>Últimos 7 dias</DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem checked={dateRange.label === 'Últimos 30 Dias'} onCheckedChange={() => setPreset('30d')}>Últimos 30 dias</DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem checked={dateRange.label === 'Este Mês'} onCheckedChange={() => setPreset('this_month')}>Este mês</DropdownMenuCheckboxItem>
+          <DropdownMenuContent align="end" className="w-48 bg-bg-elevated border-border-strong text-text-primary z-50">
+            <DropdownMenuLabel className="text-xs text-text-muted uppercase">Conta de Anúncio</DropdownMenuLabel>
+            <DropdownMenuSeparator className="bg-border-subtle" />
+            <DropdownMenuCheckboxItem checked>AIB Digital</DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={false}>Cliente X</DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <DateRangePicker />
 
         {/* Multi-Select de Campanha */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="bg-surface border-default h-9 text-xs flex items-center gap-2 min-w-[160px] justify-between font-medium">
-              <div className="flex items-center gap-2 truncate">
+            <Button variant="outline" size="sm" className="bg-bg-surface border-border-default h-9 text-xs flex items-center gap-2 min-w-[160px] justify-between font-medium">
+              <div className="flex items-center gap-2 truncate text-text-primary">
                 <Target className="w-3.5 h-3.5 text-brand-primary" />
                 <span className="truncate">
                   {selectedCampaigns.length === 0 ? 'Todas as Campanhas' : `${selectedCampaigns.length} Selecionadas`}
                 </span>
               </div>
+              <ChevronDown className="w-3 h-3 opacity-50" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64 bg-elevated border-strong">
-            <DropdownMenuLabel className="text-xs text-muted-foreground uppercase flex justify-between items-center">
+          <DropdownMenuContent align="end" className="w-64 bg-bg-elevated border-border-strong shadow-[0_10px_30px_rgba(0,0,0,0.5)] z-50">
+            <DropdownMenuLabel className="text-xs text-text-muted uppercase flex justify-between items-center text-text-primary">
               Filtrar Campanhas
               {selectedCampaigns.length > 0 && (
                 <button onClick={() => setSelectedCampaigns([])} className="text-[10px] text-brand-primary hover:underline cursor-pointer tracking-wider">LIMPAR</button>
               )}
             </DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-border" />
-            <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
+            <DropdownMenuSeparator className="bg-border-subtle" />
+            <div className="max-h-[300px] overflow-y-auto scrollbar-thin text-text-primary">
                <DropdownMenuCheckboxItem 
                  checked={selectedCampaigns.length === 0} 
                  onCheckedChange={() => setSelectedCampaigns([])}

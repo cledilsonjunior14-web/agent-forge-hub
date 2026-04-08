@@ -99,4 +99,12 @@ export const demoDemographics = {
     { hora: '22h', valor: 3.80 },
     { hora: '23h', valor: 2.10 },
   ],
+  custoPorHora: [
+    { hora: '15h', cpa: 14.50, cpm: 6.20 },
+    { hora: '19h', cpa: 12.80, cpm: 7.10 },
+    { hora: '20h', cpa: 8.40, cpm: 8.50 },
+    { hora: '21h', cpa: 9.20, cpm: 9.10 },
+    { hora: '22h', cpa: 16.50, cpm: 12.40 },
+    { hora: '23h', cpa: 22.10, cpm: 15.80 },
+  ],
 };

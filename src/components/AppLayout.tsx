@@ -2,15 +2,10 @@ import { Outlet } from 'react-router-dom';
 import { AppSidebar } from '@/components/AppSidebar';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { FilterProvider, useFilters } from '@/contexts/FilterContext';
-import { useAuth } from '@/contexts/AuthContext';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { RefreshCw, Target, CalendarDays, Check, ChevronDown } from 'lucide-react';
+import { RefreshCw, Target, ChevronDown } from 'lucide-react';
 import { demoCampaigns } from '@/services/mockData';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -27,7 +22,7 @@ const pageTitleMap: Record<string, { title: string; subtitle?: string }> = {
 
 function HeaderBar() {
   const { pathname } = useLocation();
-  const { dateRange, setPreset, selectedCampaigns, setSelectedCampaigns } = useFilters();
+  const { selectedCampaigns, setSelectedCampaigns } = useFilters();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const pageInfo = pageTitleMap[pathname] || { title: 'Dashboard' };

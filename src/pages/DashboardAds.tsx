@@ -26,7 +26,8 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 
 import { Link } from 'react-router-dom';
-import { insights_custom, listar_campanhas, listar_conjuntos, obter_criativo_do_anuncio } from '@/services/metaApi';
+// API
+import { listar_campanhas, listar_conjuntos, insights_custom, listar_contas, obter_criativo_do_anuncio } from '@/services/metaApi';
 
 // ==========================================
 // CONFIGURAÇÕES PADRÃO (FALLBACK)
@@ -155,7 +156,7 @@ function InsightItem({ type, title, message, action, texts, updateText }: any) {
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { dateRange, prevDateRange } = useFilters();
-  const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading } = useMetaContext();
+  const { token, accountId, hasMetaSetup, isLoading: isMetaSetupLoading, updateAccountId } = useMetaContext();
 
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
   const toggleCampaign = (id: string) => {
@@ -201,6 +202,10 @@ export default function DashboardPage() {
   const prevTimeRangeJSON = JSON.stringify({ since: prevDateRange.from.toISOString().split('T')[0], until: prevDateRange.to.toISOString().split('T')[0] });
 
   // 1. SELECTORS DROPDOWN LISTS
+  const { data: availableAccounts, isLoading: isAccountsLoading } = useQuery({ queryKey: ['meta-accounts-list', token], enabled: !!token, queryFn: async () => {
+     const res = await listar_contas(token);
+     return Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
+  }});
   const { data: campaignList } = useQuery({ queryKey: ['meta-campaigns-list', accountId], enabled: hasMetaSetup, queryFn: async () => {
      const res = await listar_campanhas(token, accountId, 100);
      return Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
@@ -224,6 +229,7 @@ export default function DashboardPage() {
   }
 
   queryParams.fields = 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas';
+  queryParams.use_unified_attribution_setting = 'true';
   
   const { data: currMetrics, isLoading: isMetricsLoading, isFetching: isMetricsFetching } = useQuery({
     queryKey: ['meta-dash-curr', accountId, selectedCampaignIds, selectedAdSetId, currFromStr, currToStr],
@@ -256,7 +262,7 @@ export default function DashboardPage() {
     queryKey: ['meta-dash-creatives', accountId, selectedCampaignIds, selectedAdSetId, currFromStr, currToStr],
     enabled: hasMetaSetup && isVisible('creatives'),
     queryFn: async () => {
-      const res = await insights_custom(token, accountId, { ...rankingParamsBase, fields: 'ad_id,ad_name,spend,actions,cpc,ctr', time_range: currTimeRangeJSON, limit: 150 });
+      const res = await insights_custom(token, accountId, { ...rankingParamsBase, fields: 'ad_id,ad_name,spend,actions,cpc,ctr', use_unified_attribution_setting: 'true', time_range: currTimeRangeJSON, limit: 150 });
       let data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
       const parsed = data.map((d: any) => ({ ...parseMetricsObject(d), ad_id: d.ad_id, ad_name: d.ad_name, creativeDetails: null })).filter((m: any) => m.spend > 0);
       const sorted = parsed.sort((a: any, b: any) => {
@@ -287,7 +293,7 @@ export default function DashboardPage() {
     queryKey: ['meta-dash-adset-ranking', accountId, selectedCampaignIds, currFromStr, currToStr],
     enabled: hasMetaSetup && isVisible('adsets') && selectedAdSetId === 'all',
     queryFn: async () => {
-      const res = await insights_custom(token, accountId, { ...adsetRankingParams, fields: 'adset_id,adset_name,spend,actions,cpc,ctr,cpm', time_range: currTimeRangeJSON, limit: 100 });
+      const res = await insights_custom(token, accountId, { ...adsetRankingParams, fields: 'adset_id,adset_name,spend,actions,cpc,ctr,cpm', use_unified_attribution_setting: 'true', time_range: currTimeRangeJSON, limit: 100 });
       let data = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? res : [];
       return data.map((d: any) => ({ ...parseMetricsObject(d), adset_id: d.adset_id, adset_name: d.adset_name })).filter((m: any) => m.spend > 0);
     }
@@ -362,6 +368,21 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex flex-wrap items-center justify-end gap-2.5 w-full xl:w-auto">
+          {availableAccounts && availableAccounts.length > 0 && (
+            <Select value={accountId} onValueChange={(val) => updateAccountId(val)}>
+               <SelectTrigger className="w-[200px] h-9 bg-card font-semibold text-xs border-border flex-1 max-w-[250px] shadow-sm truncate">
+                  <SelectValue placeholder="Selecionar Conta" />
+               </SelectTrigger>
+               <SelectContent className="max-w-[300px]">
+                 {availableAccounts.map((a: any) => (
+                    <SelectItem key={a.account_id} value={a.account_id} className="text-xs truncate" title={a.name}>
+                       {a.name} ({a.account_id})
+                    </SelectItem>
+                 ))}
+               </SelectContent>
+            </Select>
+          )}
+
           <DateRangePicker />
           
           <DropdownMenu>

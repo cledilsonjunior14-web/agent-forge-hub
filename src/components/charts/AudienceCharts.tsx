@@ -31,7 +31,11 @@ export function AudienceCharts({
   const currToStr = dateRange?.to?.toISOString().split('T')[0] || currFromStr;
   const time_range = JSON.stringify({ since: currFromStr, until: currToStr });
 
-  const baseParams: any = { time_range, fields: 'impressions,spend,actions' };
+  const baseParams: any = { 
+    time_range, 
+    fields: 'impressions,spend,actions',
+    use_unified_attribution_setting: 'true'
+  };
   if (selectedAdSetId !== 'all') {
     baseParams.level = 'adset';
     baseParams.adset_id = selectedAdSetId;
@@ -47,7 +51,11 @@ export function AudienceCharts({
     return dataArray.map(m => {
       const isLead = m.actions?.find((a: any) => a.action_type === 'lead');
       const isPurch = m.actions?.find((a: any) => a.action_type === 'offsite_conversion.fb_pixel_purchase');
-      const isWpp = m.actions?.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+      const isWpp = m.actions?.find((a: any) => 
+        a.action_type === 'onsite_conversion.messaging_conversation_started_7d' ||
+        a.action_type === 'onsite_conversion.messaging_first_reply' ||
+        a.action_type.includes('message')
+      );
       const res = isPurch || isLead || isWpp;
       const results = Number(res?.value || 0);
       const spend = Number(m.spend || 0);
@@ -189,19 +197,7 @@ export function AudienceCharts({
      impressions: 'Visibilidade (Impressões)'
   };
   
-  // Condição para exibir Alerta Educacional (se houver zero resultados quebrados ou iOS block flag)
-  // Geralmente os dados demográficos cortam as conversões por privacidade. Retorna "Sem classificação" (Desconhecido) se oculto.
-  const hasDataButNoResults = demogData && demogData.length > 0 && demogData.reduce((acc:any, curr:any) => acc + curr.male_results + curr.female_results, 0) === 0;
 
-  const IosAlert = () => (
-     <div className="w-full bg-warning/10 border border-warning/50 rounded-lg p-3 my-2 flex items-start gap-3 shadow-sm text-warning-foreground">
-        <Info className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-           <p className="text-xs font-bold uppercase tracking-wider text-warning mb-1">Restrição de Privacidade (Apple / Meta)</p>
-           <p className="text-[11px] leading-tight opacity-90">Você escolheu métricas de "Conversões/Vendas". Nos gráficos demográficos (Idade, Horário), a Meta suprime conversões de usuários de iOS 14.5+ (Opt-out de rastreio) ou de campanhas Advantage+ para evitar a identificação deles. <b>O Gráfico exibirá apenas as compras/cadastros rastreáveis restando, por isso a contagem geral aqui será menor que no quadro principal.</b></p>
-        </div>
-     </div>
-  );
 
   const EmptyState = ({ text }: { text: string }) => (
       <div className="h-full flex flex-col items-center justify-center text-xs opacity-50 p-6 text-center gap-2">
@@ -239,7 +235,7 @@ export function AudienceCharts({
          </div>
       </div>
 
-      {(metric === 'results' || metric === 'cpa') && hasDataButNoResults && <IosAlert />}
+
 
       <div className="grid lg:grid-cols-2 gap-4 mt-4">
          

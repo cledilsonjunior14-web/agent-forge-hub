@@ -22,11 +22,7 @@ export default function SettingsPage() {
   // Meta Ads States
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [accessToken, setAccessToken] = useState('');
-  const [accountId, setAccountId] = useState('');
-  const [availableAccounts, setAvailableAccounts] = useState<MetaAccount[]>([]);
-  const [openCombobox, setOpenCombobox] = useState(false);
 
   useEffect(() => {
     // Load local keys
@@ -37,7 +33,7 @@ export default function SettingsPage() {
     async function loadSettings() {
       if (!user) return;
       try {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('user_settings')
           .select('*')
           .eq('user_id', user.id)
@@ -47,10 +43,6 @@ export default function SettingsPage() {
 
         if (data) {
           setAccessToken(data.meta_access_token || '');
-          setAccountId(data.meta_account_id || '');
-          if (data.meta_access_token) {
-             fetchAccounts(data.meta_access_token);
-          }
         }
       } catch (err: any) {
         console.error('Erro ao carregar configurações Meta:', err);
@@ -62,37 +54,6 @@ export default function SettingsPage() {
     loadSettings();
   }, [user]);
 
-  const fetchAccounts = async (tokenToUse: string) => {
-    if (!tokenToUse) return;
-    setLoadingAccounts(true);
-    try {
-      const resp = await listar_contas(tokenToUse);
-      // O Meta retorna data como um array dentro do objeto
-      const dataArray = (resp as any).data || resp;
-      setAvailableAccounts(Array.isArray(dataArray) ? dataArray : []);
-    } catch (err: any) {
-      toast({
-        title: 'Erro ao conectar à Meta',
-        description: err.message || 'Token inválido ou sem permissão de ads_read.',
-        variant: 'destructive',
-      });
-      setAvailableAccounts([]);
-    } finally {
-      setLoadingAccounts(false);
-    }
-  };
-
-  const handleFetchClick = () => {
-    if (!accessToken) {
-      toast({
-         title: 'Atenção',
-         description: 'Insira o Token de Acesso primeiro.',
-         variant: 'destructive',
-      });
-      return;
-    }
-    fetchAccounts(accessToken);
-  };
 
   const handleSave = async () => {
     if (claudeKey) localStorage.setItem('af_claude_key', claudeKey);
@@ -108,17 +69,15 @@ export default function SettingsPage() {
       const payload = {
         user_id: user.id,
         meta_access_token: accessToken,
-        meta_account_id: accountId,
         updated_at: new Date().toISOString()
       };
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('user_settings')
         .upsert(payload, { onConflict: 'user_id' })
         .select();
 
       if (error) {
-        console.error('Erro detalhado do Supabase (Upsert):', error);
         throw error;
       }
 
@@ -188,61 +147,8 @@ export default function SettingsPage() {
                     placeholder="EAA..." 
                     className="bg-secondary font-mono text-sm"
                   />
-                  <Button onClick={handleFetchClick} disabled={loadingAccounts || !accessToken} variant="secondary" className="px-3">
-                    {loadingAccounts ? <Loader2 className="w-4 h-4 animate-spin" /> : "Listar Contas"}
-                  </Button>
                 </div>
-              </div>
-
-              <div className="space-y-2 flex flex-col">
-                <Label>Conta de Anúncios Base (Account ID)</Label>
-                <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={openCombobox}
-                      className="w-full justify-between bg-secondary text-sm h-10 px-3 py-2"
-                      disabled={availableAccounts.length === 0}
-                    >
-                      {accountId
-                        ? availableAccounts.find((account) => account.account_id === accountId)?.name + ` (${accountId})`
-                        : availableAccounts.length === 0
-                        ? "Carregue o token primeiro para pesquisar"
-                        : "Pesquise e selecione a conta..."}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Pesquisar pelo nome da conta ou ID..." />
-                      <CommandList>
-                        <CommandEmpty>Nenhuma conta encontrada na busca.</CommandEmpty>
-                        <CommandGroup>
-                          {availableAccounts.map((account) => (
-                            <CommandItem
-                              key={account.account_id}
-                              value={`${account.name} ${account.account_id}`}
-                              onSelect={() => {
-                                setAccountId(account.account_id)
-                                setOpenCombobox(false)
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  accountId === account.account_id ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              {account.name} <span className="text-muted-foreground text-xs ml-2">({account.account_id})</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-                <p className="text-xs text-muted-foreground mt-1">Conta para a qual os primeiros insights serão carregados no Dashboard.</p>
+                <p className="text-xs text-muted-foreground mt-1">Salve o token e utilize o seletor de contas diretamente no Dashboard.</p>
               </div>
             </div>
           </div>

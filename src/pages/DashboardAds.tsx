@@ -225,7 +225,7 @@ export default function DashboardPage() {
 
   queryParams.fields = 'impressions,clicks,spend,cpm,cpc,ctr,actions,purchase_roas';
   
-  const { data: currMetrics, isLoading: isMetricsLoading } = useQuery({
+  const { data: currMetrics, isLoading: isMetricsLoading, isFetching: isMetricsFetching } = useQuery({
     queryKey: ['meta-dash-curr', accountId, selectedCampaignIds, selectedAdSetId, currFromStr, currToStr],
     enabled: hasMetaSetup,
     queryFn: async () => {
@@ -396,8 +396,8 @@ export default function DashboardPage() {
             </Select>
           )}
 
-          <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 text-xs px-3 min-w-max" onClick={() => queryClient.refetchQueries({ predicate: (q) => typeof q.queryKey[0] === 'string' && q.queryKey[0].startsWith('meta-') })} disabled={isMetricsLoading}>
-            <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 ${isMetricsLoading ? 'animate-spin' : ''}`} /> <EditableText value={texts.btnUpdate} onChange={(v:string) => updateText('btnUpdate', v)} />
+          <Button variant="default" size="sm" className="h-9 gap-1.5 font-bold shadow-md shadow-primary/20 text-xs px-3 min-w-max" onClick={() => queryClient.invalidateQueries()} disabled={isMetricsFetching}>
+            <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 ${isMetricsFetching ? 'animate-spin' : ''}`} /> <EditableText value={texts.btnUpdate} onChange={(v:string) => updateText('btnUpdate', v)} />
           </Button>
         </div>
       </div>
